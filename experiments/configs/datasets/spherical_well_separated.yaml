@@ -1,0 +1,12 @@
+name: spherical_well_separated
+target:
+  _target_: experiments.data.sampler_core.DatasetGenerator
+  n_features: 2
+  n_components: 3
+  n_samples: 300
+  covariance_type: spherical
+  variance_spread: 1.5
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 10.0
+  min_mahalanobis_distance: 5.0

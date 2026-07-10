@@ -1,0 +1,4 @@
+ - _target_: experiments.metrics.aggregators.MeanAggregator
+ - _target_: experiments.metrics.aggregators.StdAggregator
+ - _target_: experiments.metrics.aggregators.MedianAggregator
+ - _target_: experiments.metrics.aggregators.IQRAggregator

@@ -1,0 +1,12 @@
+name: diag_imbalanced
+target:
+  _target_: experiments.data.sampler_core.DatasetGenerator
+  n_features: 4
+  n_components: 3
+  n_samples: 400
+  covariance_type: diag
+  variance_spread: 4.0
+  anisotropy: 3.0
+  means_mode: normal
+  weights_concentration: 0.35
+  min_mahalanobis_distance: 3.5

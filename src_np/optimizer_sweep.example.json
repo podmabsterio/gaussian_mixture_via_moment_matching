@@ -1,0 +1,62 @@
+{
+  "output_dir": "gmm_numpy/results/optimizer_sweep",
+  "seeds": [0, 1, 2],
+  "include_kmeans_baseline": true,
+  "data_defaults": {
+    "n_features": 12,
+    "separation": 3.0,
+    "base_scale": 1.0,
+    "variance_spread": 0.25,
+    "weight_mode": "uniform",
+    "weight_concentration": 2.0,
+    "kmeans_n_init": 20
+  },
+  "scenarios": [
+    {
+      "name": "many_components",
+      "n_samples": 1500,
+      "n_components": [8, 11]
+    },
+    {
+      "name": "few_samples",
+      "n_samples": [500, 250, 125, 50],
+      "n_components": 3
+    },
+    {
+      "name": "many_components_few_samples",
+      "n_samples": [400, 200, 100],
+      "n_components": [8, 11]
+    }
+  ],
+  "bandwidth": {
+    "neighbors_per_component_fraction": 0.5,
+    "count_rtol": 0.001,
+    "s_rtol": 0.0001
+  },
+  "numpy_model": {
+    "num_directions": [1, 2, 3],
+    "n_init": 20,
+    "mean_penalty_weight": 0.0,
+    "objective_rtol": 0.000001,
+    "objective_atol": 0.0,
+    "convergence_patience": 2
+  },
+  "torch_model": {
+    "enabled": true,
+    "num_directions": 3,
+    "include_base_kernel": false,
+    "n_init": 20,
+    "dtype": "float64",
+    "device": "cpu",
+    "outer_steps": 10,
+    "lbfgs_max_iter": 20,
+    "tolerance_grad": 1e-7,
+    "tolerance_change": 1e-9,
+    "history_size": 100,
+    "line_search_fn": null
+  },
+  "evaluation": {
+    "n_test": 20000,
+    "batch_size": 8192
+  }
+}
