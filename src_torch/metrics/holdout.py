@@ -4,7 +4,7 @@ from typing import Dict, Optional
 
 import torch
 
-from src.metrics.common import (
+from src_torch.metrics.common import (
     energy_distance,
     log_prob_gmm,
     mmd_rbf,

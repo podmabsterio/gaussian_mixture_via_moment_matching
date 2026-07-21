@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 import pandas as pd
 import numpy as np
 
@@ -17,7 +18,9 @@ def get_save_path(directory: str | Path, run_name: str, override: bool = False) 
         if not override:
             raise FileExistsError(f"Run '{run_name}' already exists and override=False")
         else:
-            print("Override is enabled. Ignoring existing file.")
+            print("Override is enabled. Removing existing file.")
+            shutil.rmtree(run_path)
+            run_path.mkdir(parents=True, exist_ok=True)
     else:
         run_path.mkdir(parents=True, exist_ok=True)
 

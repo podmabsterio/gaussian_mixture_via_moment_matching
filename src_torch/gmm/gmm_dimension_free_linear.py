@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import torch
 
-from src.gmm.gmm import EPS
-from src.gmm.gmm_dimension_free import GaussianMomentModelDimensionFree
-from src.gmm.gmm_linear_sgd import UniformRandomDirectionSampler
+from src_torch.gmm.gmm import EPS
+from src_torch.gmm.gmm_dimension_free import GaussianMomentModelDimensionFree
+from src_torch.gmm.gmm_linear_sgd import UniformRandomDirectionSampler
 
 
 class GaussianMomentModelDimensionFreeLinear(GaussianMomentModelDimensionFree):

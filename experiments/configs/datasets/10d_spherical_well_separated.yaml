@@ -1,9 +1,9 @@
 name: spherical_well_separated
 target:
-  _target_: experiments.data.sampler_core.DatasetGenerator
-  n_features: 2
+  _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+  n_features: 10
   n_components: 3
-  n_samples: 300
+  n_samples: 800
   covariance_type: spherical
   variance_spread: 1.5
   anisotropy: 1.0

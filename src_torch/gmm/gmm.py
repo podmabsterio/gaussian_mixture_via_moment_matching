@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
 
-from src.gmm.test_functions_utils.centers_generators import (
+from src_torch.gmm.test_functions_utils.centers_generators import (
     BaseCentersGenerator,
     DataCentersGenerator,
 )
-from src.initializers.base_initializer import BaseInitializer
-from src.gmm.test_functions_utils.bandwidth_generators import (
+from src_torch.initializers.base_initializer import BaseInitializer
+from src_torch.gmm.test_functions_utils.bandwidth_generators import (
     BaseBandwidthGenerator,
     DimensionAwareBandwidthGenerator,
 )

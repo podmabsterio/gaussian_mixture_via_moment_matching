@@ -1,7 +1,7 @@
 import torch
 
-from src.gmm.gmm import GaussianMomentModel
-from src.gmm.projectors import AffineOrthogonalProjectorParam
+from src_torch.gmm.gmm import GaussianMomentModel
+from src_torch.gmm.projectors import AffineOrthogonalProjectorParam
 
 
 class GaussianMomentModelExactProjectionMu(GaussianMomentModel):

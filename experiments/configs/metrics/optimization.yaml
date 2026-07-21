@@ -1,0 +1,6 @@
+ - _target_: experiments.metrics.FinalLoss
+ - _target_: experiments.metrics.RelativeLossDrop
+ - _target_: experiments.metrics.ForwardKL
+ - _target_: experiments.metrics.WeightsTV
+ - _target_: experiments.metrics.MeansNormalizedError
+ - _target_: experiments.metrics.CovariancesAffineInvariantError

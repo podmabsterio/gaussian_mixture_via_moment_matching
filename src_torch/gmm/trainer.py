@@ -1,5 +1,5 @@
-from src.gmm.gmm import GaussianMomentModel
-from src.gmm.optimization import OptimizationHistory, OptimizationStrategy
+from src_torch.gmm.gmm import GaussianMomentModel
+from src_torch.gmm.optimization import OptimizationHistory, OptimizationStrategy
 
 
 EPS = 1e-8

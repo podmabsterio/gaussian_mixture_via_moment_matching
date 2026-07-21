@@ -13,6 +13,19 @@ from experiments.utils.dict_utils import data_parallel_metrics_rebuild as rebuil
 from experiments.utils.params_shape_utils import convert_and_check_params
 
 
+def _init_model(
+    model_cfg, random_state, data_generator_cfg, init_models_with_oracle_n_components
+):
+    if init_models_with_oracle_n_components:
+        return instantiate(
+            model_cfg.target,
+            random_state=random_state,
+            n_components=data_generator_cfg.n_components,
+        )
+    else:
+        return instantiate(model_cfg.target, random_state=random_state)
+
+
 def run_on_dataset(
     models_cfg,
     data_generator_cfg,
@@ -20,6 +33,7 @@ def run_on_dataset(
     num_model_seeds,
     dataset_seed,
     threads_limit,
+    init_models_with_oracle_n_components,
 ):
     dataset_generator = instantiate(data_generator_cfg)
     dataset = dataset_generator.generate(dataset_seed)
@@ -27,8 +41,11 @@ def run_on_dataset(
     with threadpool_limits(limits=threads_limit):
         for model_cfg in models_cfg:
             for seed in range(1, num_model_seeds + 1):
-                model = instantiate(
-                    model_cfg.target, random_state=seed, k=dataset.n_components
+                model = _init_model(
+                    model_cfg,
+                    seed,
+                    data_generator_cfg,
+                    init_models_with_oracle_n_components,
                 )
                 fit_start = perf_counter()
                 model.fit(**dataset)
@@ -36,7 +53,9 @@ def run_on_dataset(
 
                 model_params = convert_and_check_params(model.params_dict())
 
-                model_results = evaluator(dataset=dataset, estimated=model_params)
+                model_results = evaluator(
+                    dataset=dataset, estimated=model_params, model=model
+                )
                 model_results["fit_time"] = fit_time
                 results[model_cfg.model_name].append(model_results)
 
@@ -54,6 +73,7 @@ class DataParallelRunner:
         n_jobs=8,
         backend="loky",
         batch_size="auto",
+        init_models_with_oracle_n_components=True,
     ):
         self.threads_limit = threads_limit
         self.models_cfg = models_config
@@ -63,6 +83,7 @@ class DataParallelRunner:
         self.n_jobs = n_jobs
         self.backend = backend
         self.batch_size = batch_size
+        self.init_models_with_oracle_n_components = init_models_with_oracle_n_components
 
     def run(self, data_generator_config):
         parallel = Parallel(
@@ -83,6 +104,7 @@ class DataParallelRunner:
                 num_model_seeds=self.model_seeds_per_dataset,
                 dataset_seed=dataset_seed,
                 threads_limit=self.threads_limit,
+                init_models_with_oracle_n_components=self.init_models_with_oracle_n_components,
             )
             for dataset_seed in dataset_seeds
         )

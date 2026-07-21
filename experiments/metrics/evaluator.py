@@ -34,8 +34,8 @@ class Evaluator:
             "labels": labels,
         }
 
-    def __call__(self, dataset, estimated):
-        kwargs = {}
+    def __call__(self, dataset, estimated, model):
+        kwargs = {"model": model}
         estimated = self.prepare_estimated_params(
             dataset["X"], dataset["true_means"], estimated
         )

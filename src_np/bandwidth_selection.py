@@ -41,7 +41,10 @@ def select_s_values_by_average_kernel_count(
         raise ValueError("tolerances and max_bisection_steps must be positive")
 
     n = data.shape[0]
-    if target_neighbor_counts is None:
+    use_default_targets = target_neighbor_counts is None or (
+        isinstance(target_neighbor_counts, str) and target_neighbor_counts == "auto"
+    )
+    if use_default_targets:
         targets = np.array(
             [n / (2.0 * K), n / (np.sqrt(2.0) * K), n / K],
             dtype=float,

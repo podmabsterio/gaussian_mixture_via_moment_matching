@@ -3,7 +3,7 @@ from typing import Any
 
 
 def data_parallel_metrics_rebuild(
-    data: list[dict[str, list[dict[str, float]]]]
+    data: list[dict[str, list[dict[str, float]]]],
 ) -> dict[str, dict[str, list[float]]]:
     result: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
 

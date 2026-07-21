@@ -1,4 +1,4 @@
-from src.gmm.gmm import GaussianMomentModel
+from src_torch.gmm.gmm import GaussianMomentModel
 
 import torch
 

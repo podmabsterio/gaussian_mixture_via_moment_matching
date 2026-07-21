@@ -3,8 +3,8 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from src.gmm.gmm import GaussianMomentModel
-from src.gmm.simplex_qp import solve_simplex_least_squares
+from src_torch.gmm.gmm import GaussianMomentModel
+from src_torch.gmm.simplex_qp import solve_simplex_least_squares
 
 
 LOSS_EUCLIDEAN = "euclidean"

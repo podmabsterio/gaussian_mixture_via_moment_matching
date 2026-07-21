@@ -1,6 +1,6 @@
 from experiments.metrics.base_metric import BaseMetric
 from experiments.metrics.metric_utils import log_gm_pdf
-from experiments.data import sample_gm_data
+from experiments.synthetic_data import sample_gm_data
 
 import numpy as np
 

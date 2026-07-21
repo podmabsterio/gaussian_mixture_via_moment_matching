@@ -1,0 +1,287 @@
+defaults:
+  - metrics: optimization
+  - aggregators: all
+  - _self_
+
+run_name: optimization_tiny_data_base_kernel_ablation
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 50
+  model_seeds_per_dataset: 3
+  n_jobs: 4
+  backend: loky
+  batch_size: auto
+
+np_kmeans: &np_kmeans
+  _target_: src_np.gmm.OneSGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: auto
+  mean_penalty_weight: 0.0
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  include_base_kernel: false
+  num_directions: 2
+  joint_optimization: false
+  max_steps: 50
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1e-5
+  reg_covar: 1e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1e-4
+
+models:
+  # Equal-cost comparison: 2 directional rows per center
+  # versus 1 base + 1 directional row per center.
+  - model_name: np_lin2
+    target:
+      <<: *np_kmeans
+      num_directions: 2
+      include_base_kernel: false
+  - model_name: np_base1_lin1
+    target:
+      <<: *np_kmeans
+      num_directions: 1
+      include_base_kernel: true
+
+  # Same equal-cost comparison with the near-center probes that helped before
+  # on bad-separated small-data regimes.
+  - model_name: np_lin2_near_r05_a01
+    target:
+      <<: *np_kmeans
+      num_directions: 2
+      include_base_kernel: false
+      r_tests_near_means: 0.5
+      alpha_std_tests: 0.1
+  - model_name: np_base1_lin1_near_r05_a01
+    target:
+      <<: *np_kmeans
+      num_directions: 1
+      include_base_kernel: true
+      r_tests_near_means: 0.5
+      alpha_std_tests: 0.1
+
+  # Same comparison with the tighter near-center probes that helped before
+  # on well-separated regimes.
+  - model_name: np_lin2_near_r1_a005
+    target:
+      <<: *np_kmeans
+      num_directions: 2
+      include_base_kernel: false
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.05
+  - model_name: np_base1_lin1_near_r1_a005
+    target:
+      <<: *np_kmeans
+      num_directions: 1
+      include_base_kernel: true
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.05
+
+  # Mean-anchor comparison. The 1e-2 setting was the clearest penalty-only
+  # improvement in the previous ablation's difficult well-separated regimes.
+  - model_name: np_lin2_penalty_1em2
+    target:
+      <<: *np_kmeans
+      num_directions: 2
+      include_base_kernel: false
+      mean_penalty_weight: 1e-2
+  - model_name: np_base1_lin1_penalty_1em2
+    target:
+      <<: *np_kmeans
+      num_directions: 1
+      include_base_kernel: true
+      mean_penalty_weight: 1e-2
+
+  # Increased budget: 3 directional rows per center versus
+  # 1 base + 2 directional rows per center.
+  - model_name: np_lin3
+    target:
+      <<: *np_kmeans
+      num_directions: 3
+      include_base_kernel: false
+  - model_name: np_base1_lin2
+    target:
+      <<: *np_kmeans
+      num_directions: 2
+      include_base_kernel: true
+
+  - model_name: np_lin3_near_r1_a005
+    target:
+      <<: *np_kmeans
+      num_directions: 3
+      include_base_kernel: false
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.05
+  - model_name: np_base1_lin2_near_r1_a005
+    target:
+      <<: *np_kmeans
+      num_directions: 2
+      include_base_kernel: true
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.05
+
+  - model_name: np_lin3_near_r1_a005_penalty_1em2
+    target:
+      <<: *np_kmeans
+      num_directions: 3
+      include_base_kernel: false
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.05
+      mean_penalty_weight: 1e-2
+  - model_name: np_base1_lin2_near_r1_a005_penalty_1em2
+    target:
+      <<: *np_kmeans
+      num_directions: 2
+      include_base_kernel: true
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.05
+      mean_penalty_weight: 1e-2
+
+  - model_name: sklearn_gmm_kmeans
+    target:
+      <<: *sklearn_gmm_kmeans
+  - model_name: sklearn_kmeans
+    target:
+      <<: *sklearn_kmeans
+
+datasets:
+  - name: spherical_bad_separated_large_spread_n200
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 200
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 3.0
+  - name: spherical_bad_separated_large_spread_n150
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 150
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 3.0
+  - name: spherical_bad_separated_large_spread_n100
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 100
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 3.0
+  - name: spherical_bad_separated_large_spread_n50
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 50
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 3.0
+  - name: spherical_bad_separated_large_spread_n25
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 25
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 3.0
+  - name: spherical_well_separated_large_spread_n200
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 200
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 5.0
+  - name: spherical_well_separated_large_spread_n100
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 100
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 5.0
+  - name: spherical_well_separated_large_spread_n50
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 50
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 5.0
+  - name: spherical_well_separated_large_spread_n25
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 25
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 5.0
+  - name: spherical_well_separated_large_spread_n15
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 15
+      covariance_type: spherical
+      variance_spread: 4.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 5.0

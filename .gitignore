@@ -106,6 +106,7 @@ input/
 saved/
 results/
 outputs/
+local_tests/
 
 # editor, os cache directory
 .vscode/

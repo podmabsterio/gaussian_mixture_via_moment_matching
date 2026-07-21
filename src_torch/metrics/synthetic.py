@@ -6,7 +6,7 @@ from typing import Dict
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from src.metrics.common import log_prob_gmm, prepare_gmm_tensors, sample_gmm
+from src_torch.metrics.common import log_prob_gmm, prepare_gmm_tensors, sample_gmm
 
 
 def evaluate_synthetic_gmm(

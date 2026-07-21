@@ -1,7 +1,7 @@
 import torch
 
-from src.gmm.gmm import EPS, GaussianMomentModel
-from src.gmm.gmm_linear_sgd import UniformRandomDirectionSampler
+from src_torch.gmm.gmm import EPS, GaussianMomentModel
+from src_torch.gmm.gmm_linear_sgd import UniformRandomDirectionSampler
 
 
 class GaussianMomentModelDirectionalSGD(GaussianMomentModel):

@@ -5,7 +5,7 @@ from typing import Dict
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from src.metrics.common import (
+from src_torch.metrics.common import (
     estimate_js_divergence,
     isotropic_covariances,
     log_prob_gmm,

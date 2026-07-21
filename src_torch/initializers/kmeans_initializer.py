@@ -1,4 +1,4 @@
-from src.initializers.base_initializer import BaseInitializer
+from src_torch.initializers.base_initializer import BaseInitializer
 
 from sklearn.cluster import KMeans
 import torch

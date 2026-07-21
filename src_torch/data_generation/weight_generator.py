@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional, Sequence
-from src.data_generation.dataclass import MixtureSpec
+from src_torch.data_generation.dataclass import MixtureSpec
 
 import numpy as np
 

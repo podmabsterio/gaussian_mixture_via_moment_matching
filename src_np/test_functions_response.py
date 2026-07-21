@@ -93,12 +93,16 @@ def compute_Z_one_s(
     if test_batch_size is None:
         test_batch_size = max(1, min(J, max_block_entries // min(n, data_batch_size)))
 
+    direction_norms = np.linalg.norm(U, axis=1)
+    base_mask = direction_norms <= np.finfo(float).tiny
+
     Z = np.zeros(J, dtype=float)
 
     for j0 in range(0, J, test_batch_size):
         j1 = min(J, j0 + test_batch_size)
         C = X[j0:j1]
         V = U[j0:j1]
+        batch_base_mask = base_mask[j0:j1]
 
         c2 = np.sum(C * C, axis=1)
         cu = np.sum(C * V, axis=1)
@@ -120,8 +124,12 @@ def compute_Z_one_s(
             dist2 *= -0.5 / s2
             np.exp(dist2, out=dist2)
 
-            lin *= dist2
-            acc += np.sum(lin, axis=0)
+            if np.any(batch_base_mask):
+                acc[batch_base_mask] += np.sum(dist2[:, batch_base_mask], axis=0)
+
+            if np.any(~batch_base_mask):
+                lin *= dist2
+                acc[~batch_base_mask] += np.sum(lin[:, ~batch_base_mask], axis=0)
 
         Z[j0:j1] = acc / n
 
@@ -171,16 +179,20 @@ def compute_psi_one_s_isotropic_gmm(
 
     if weights is not None:
         coef = weights * np.exp(-0.5 * d * np.log1p(v / s2)) * (s2 / t)
+        base_coef = weights * np.exp(-0.5 * d * np.log1p(v / s2))
     else:
         coef = amplitudes * (s2 / t)
+        base_coef = amplitudes
 
     m2 = np.sum(means * means, axis=1)
     psi = np.zeros(J, dtype=float)
+    base_mask = np.linalg.norm(U, axis=1) <= np.finfo(float).tiny
 
     for j0 in range(0, J, test_batch_size):
         j1 = min(J, j0 + test_batch_size)
         C = X[j0:j1]
         V = U[j0:j1]
+        batch_base_mask = base_mask[j0:j1]
 
         c2 = np.sum(C * C, axis=1)
         cu = np.sum(C * V, axis=1)
@@ -194,9 +206,99 @@ def compute_psi_one_s_isotropic_gmm(
         dist2 *= -0.5 / t[None, :]
         np.exp(dist2, out=dist2)
 
-        dist2 *= lin
-        dist2 *= coef[None, :]
+        psi_batch = psi[j0:j1]
 
-        psi[j0:j1] = np.sum(dist2, axis=1)
+        if np.any(batch_base_mask):
+            base_values = dist2[batch_base_mask].copy()
+            base_values *= base_coef[None, :]
+            psi_batch[batch_base_mask] = np.sum(base_values, axis=1)
+
+        if np.any(~batch_base_mask):
+            dir_values = dist2[~batch_base_mask].copy()
+            dir_values *= lin[~batch_base_mask]
+            dir_values *= coef[None, :]
+            psi_batch[~batch_base_mask] = np.sum(dir_values, axis=1)
+
+    return psi
+
+
+def compute_psi_one_s_full_covariance_gmm(
+    test_centers,
+    test_directions,
+    s,
+    means,
+    covariances,
+    weights=None,
+    amplitudes=None,
+    test_batch_size=8192,
+):
+    X = np.asarray(test_centers, dtype=float)
+    U = np.asarray(test_directions, dtype=float)
+    means = np.asarray(means, dtype=float)
+    covariances = np.asarray(covariances, dtype=float)
+    s = float(s)
+
+    assert (
+        X.ndim == 2
+        and U.shape == X.shape
+        and means.ndim == 2
+        and means.shape[1] == X.shape[1]
+        and covariances.shape == (means.shape[0], means.shape[1], means.shape[1])
+        and s > 0
+        and test_batch_size > 0
+        and ((weights is None) ^ (amplitudes is None))
+    )
+
+    if weights is not None:
+        weights = np.asarray(weights, dtype=float).reshape(-1)
+        assert weights.shape == (means.shape[0],)
+    else:
+        amplitudes = np.asarray(amplitudes, dtype=float).reshape(-1)
+        assert amplitudes.shape == (means.shape[0],)
+
+    J, d = X.shape
+    K = means.shape[0]
+    s2 = s * s
+
+    eye = np.eye(d)
+    B = np.empty_like(covariances)
+    det_coef = np.empty(K, dtype=float)
+
+    for k in range(K):
+        scaled = eye + covariances[k] / s2
+        sign, logdet = np.linalg.slogdet(scaled)
+        assert sign > 0
+        B[k] = np.linalg.solve(scaled, eye)
+        det_coef[k] = np.exp(-0.5 * logdet)
+
+    if weights is not None:
+        coef = weights * det_coef
+    else:
+        coef = amplitudes
+
+    psi = np.zeros(J, dtype=float)
+    base_mask = np.linalg.norm(U, axis=1) <= np.finfo(float).tiny
+
+    for j0 in range(0, J, test_batch_size):
+        j1 = min(J, j0 + test_batch_size)
+        C = X[j0:j1]
+        V = U[j0:j1]
+        batch_base_mask = base_mask[j0:j1]
+
+        acc = np.zeros(j1 - j0, dtype=float)
+        for k in range(K):
+            diff = means[k] - C
+            bdiff = diff @ B[k]
+            quad = np.sum(diff * bdiff, axis=1)
+            lin = np.sum(bdiff * V, axis=1)
+            base = coef[k] * np.exp(-0.5 * quad / s2)
+            if np.any(batch_base_mask):
+                acc[batch_base_mask] += base[batch_base_mask]
+            if np.any(~batch_base_mask):
+                acc[~batch_base_mask] += base[~batch_base_mask] * lin[
+                    ~batch_base_mask
+                ]
+
+        psi[j0:j1] = acc
 
     return psi

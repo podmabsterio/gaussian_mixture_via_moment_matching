@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 from experiments.utils.io_utils import init_saving, save_dict_to_path
 from experiments.metrics.evaluator import Evaluator
 from experiments.metrics.metrics_per_model import MetricsPerModelAggregator
+from experiments.visualization import plot_data_2d_projection
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -19,12 +20,19 @@ def main(config):
     aggregator = MetricsPerModelAggregator(config.aggregators)
 
     for dataset_cfg in config.datasets:
+        dataset_dir = save_path / dataset_cfg.name
+        if config.save_data_visualizations:
+            plot_data_2d_projection(
+                dataset_cfg.target,
+                dataset_dir / "visualization",
+                config.num_visualization_samples,
+            )
         runner = instantiate(
             config.runner, models_config=config.models, evaluator=evaluator
         )
         results = runner.run(dataset_cfg.target)
         aggregated_results = aggregator.aggregate(results)
-        save_dict_to_path(save_path / dataset_cfg.name, aggregated_results)
+        save_dict_to_path(dataset_dir, aggregated_results)
 
 
 if __name__ == "__main__":

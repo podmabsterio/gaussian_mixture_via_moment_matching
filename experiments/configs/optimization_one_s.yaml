@@ -1,0 +1,136 @@
+defaults:
+  - metrics: optimization
+  - aggregators: all
+  - datasets/10d_spherical_well_separated@dataset_defs.spherical_well_separated
+  - datasets/10d_spherical_bad_separated@dataset_defs.spherical_bad_separated
+  - _self_
+
+run_name: optimization_one_s
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 100
+  model_seeds_per_dataset: 10
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+models:
+  - model_name: decreasing_s_200
+    target:
+      _target_: experiments.wrappers.PopulationWrapper
+      init: null
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      n_init: 1
+      target_neighbor_counts: [200, 100, 70, 50, 30]
+      mean_penalty_weight: 0.0
+      num_directions: 2
+      joint_optimization: false
+      max_steps: 30
+  - model_name: one_s_200
+    target:
+      _target_: experiments.wrappers.PopulationWrapper
+      init: null
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      n_init: 1
+      target_neighbor_counts: [200]
+      mean_penalty_weight: 0.0
+      num_directions: 2
+      joint_optimization: false
+      max_steps: 30
+  - model_name: decreasing_s_100
+    target:
+      _target_: experiments.wrappers.PopulationWrapper
+      init: null
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      n_init: 1
+      target_neighbor_counts: [100, 70, 50, 30]
+      mean_penalty_weight: 0.0
+      num_directions: 2
+      joint_optimization: false
+      max_steps: 30
+  - model_name: one_s_100
+    target:
+      _target_: experiments.wrappers.PopulationWrapper
+      init: null
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      n_init: 1
+      target_neighbor_counts: [100]
+      mean_penalty_weight: 0.0
+      num_directions: 2
+      joint_optimization: false
+      max_steps: 30
+  - model_name: decreasing_s_70
+    target:
+      _target_: experiments.wrappers.PopulationWrapper
+      init: null
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      n_init: 1
+      target_neighbor_counts: [70, 50, 30]
+      mean_penalty_weight: 0.0
+      num_directions: 2
+      joint_optimization: false
+      max_steps: 30
+  - model_name: one_s_70
+    target:
+      _target_: experiments.wrappers.PopulationWrapper
+      init: null
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      n_init: 1
+      target_neighbor_counts: [70]
+      mean_penalty_weight: 0.0
+      num_directions: 2
+      joint_optimization: false
+      max_steps: 30
+  - model_name: decreasing_s_50
+    target:
+      _target_: experiments.wrappers.PopulationWrapper
+      init: null
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      n_init: 1
+      target_neighbor_counts: [50, 30]
+      mean_penalty_weight: 0.0
+      num_directions: 2
+      joint_optimization: false
+      max_steps: 30
+  - model_name: one_s_50
+    target:
+      _target_: experiments.wrappers.PopulationWrapper
+      init: null
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      n_init: 1
+      target_neighbor_counts: [50]
+      mean_penalty_weight: 0.0
+      num_directions: 2
+      joint_optimization: false
+      max_steps: 30
+  - model_name: one_s_30
+    target:
+      _target_: experiments.wrappers.PopulationWrapper
+      init: null
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      n_init: 1
+      target_neighbor_counts: [30]
+      mean_penalty_weight: 0.0
+      num_directions: 2
+      joint_optimization: false
+      max_steps: 30
+
+datasets:
+  - ${dataset_defs.spherical_well_separated}
+  - ${dataset_defs.spherical_bad_separated}

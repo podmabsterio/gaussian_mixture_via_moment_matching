@@ -1,0 +1,127 @@
+defaults:
+  - metrics: optimization
+  - aggregators: all
+  - datasets/10d_spherical_well_separated@dataset_defs.spherical_well_separated
+  - datasets/10d_spherical_bad_separated@dataset_defs.spherical_bad_separated
+  - _self_
+
+run_name: optimization_start_noise_controls
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 20
+  model_seeds_per_dataset: 10
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+population_model: &population_model
+  _target_: experiments.wrappers.PopulationWrapper
+  init: null
+  n_init: 1
+  mean_penalty_weight: 0.0
+  num_directions: 2
+  joint_optimization: false
+  max_steps: 30
+
+models:
+  # - model_name: noise_005_one_s_30
+  #   target:
+  #     <<: *population_model
+  #     means_noise_coef: 0.05
+  #     sigmas_noise_coef: 0.05
+  #     target_neighbor_counts: [30]
+  - model_name: noise_005_one_s_30_steps_150
+    target:
+      <<: *population_model
+      means_noise_coef: 0.05
+      sigmas_noise_coef: 0.05
+      target_neighbor_counts: [30]
+      max_steps: 150
+  - model_name: noise_005_decreasing_s_200_70_30
+    target:
+      <<: *population_model
+      means_noise_coef: 0.05
+      sigmas_noise_coef: 0.05
+      target_neighbor_counts: [200, 70, 30]
+  # - model_name: noise_010_one_s_30
+  #   target:
+  #     <<: *population_model
+  #     means_noise_coef: 0.1
+  #     sigmas_noise_coef: 0.1
+  #     target_neighbor_counts: [30]
+  - model_name: noise_010_one_s_30_steps_150
+    target:
+      <<: *population_model
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      target_neighbor_counts: [30]
+      max_steps: 150
+  - model_name: noise_010_decreasing_s_200_70_30
+    target:
+      <<: *population_model
+      means_noise_coef: 0.1
+      sigmas_noise_coef: 0.1
+      target_neighbor_counts: [200, 70, 30]
+  # - model_name: noise_020_one_s_30
+  #   target:
+  #     <<: *population_model
+  #     means_noise_coef: 0.2
+  #     sigmas_noise_coef: 0.2
+  #     target_neighbor_counts: [30]
+  - model_name: noise_020_one_s_30_steps_150
+    target:
+      <<: *population_model
+      means_noise_coef: 0.2
+      sigmas_noise_coef: 0.2
+      target_neighbor_counts: [30]
+      max_steps: 150
+  - model_name: noise_020_decreasing_s_200_70_30
+    target:
+      <<: *population_model
+      means_noise_coef: 0.2
+      sigmas_noise_coef: 0.2
+      target_neighbor_counts: [200, 70, 30]
+  # - model_name: noise_050_one_s_30
+  #   target:
+  #     <<: *population_model
+  #     means_noise_coef: 0.5
+  #     sigmas_noise_coef: 0.5
+  #     target_neighbor_counts: [30]
+  - model_name: noise_050_one_s_30_steps_150
+    target:
+      <<: *population_model
+      means_noise_coef: 0.5
+      sigmas_noise_coef: 0.5
+      target_neighbor_counts: [30]
+      max_steps: 150
+  - model_name: noise_050_decreasing_s_200_70_30
+    target:
+      <<: *population_model
+      means_noise_coef: 0.5
+      sigmas_noise_coef: 0.5
+      target_neighbor_counts: [200, 70, 30]
+  - model_name: noise_10_one_s_30_steps_150
+    target:
+      <<: *population_model
+      means_noise_coef: 1.0
+      sigmas_noise_coef: 1.0
+      target_neighbor_counts: [30]
+      max_steps: 150
+  - model_name: noise_10_decreasing_s_200_70_30
+    target:
+      <<: *population_model
+      means_noise_coef: 1.0
+      sigmas_noise_coef: 1.0
+      target_neighbor_counts: [200, 70, 30]
+
+datasets:
+  - ${dataset_defs.spherical_bad_separated}
+  - ${dataset_defs.spherical_well_separated}
+  

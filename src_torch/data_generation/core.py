@@ -5,15 +5,15 @@ from typing import Any, Mapping, Optional, Protocol
 
 import numpy as np
 
-from src.data_generation.component_generator import (
+from src_torch.data_generation.component_generator import (
     ComponentSamplerBase,
     GaussianComponentSampler,
 )
-from src.data_generation.covarience_generator import CovarianceSamplerBase
-from src.data_generation.means_generator import CenterSamplerBase
-from src.data_generation.separation_calibrator import SeparationCalibrator
-from src.data_generation.weight_generator import WeightSamplerBase
-from src.data_generation.dataclass import MixtureSpec, CenterResult, GeneratedDataset
+from src_torch.data_generation.covarience_generator import CovarianceSamplerBase
+from src_torch.data_generation.means_generator import CenterSamplerBase
+from src_torch.data_generation.separation_calibrator import SeparationCalibrator
+from src_torch.data_generation.weight_generator import WeightSamplerBase
+from src_torch.data_generation.dataclass import MixtureSpec, CenterResult, GeneratedDataset
 
 
 Array = np.ndarray

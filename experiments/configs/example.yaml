@@ -2,7 +2,7 @@ defaults:
   - metrics: default
   - aggregators: all
   - datasets/spherical_well_separated@dataset_defs.spherical_well_separated
-  - datasets/diag_imbalanced@dataset_defs.diag_imbalanced
+  # - datasets/diag_imbalanced@dataset_defs.diag_imbalanced
   - _self_
 
 run_name: example_src_np_gmm
@@ -25,22 +25,18 @@ models:
       _target_: experiments.wrappers.PopulationWrapper
       init: None
       n_init: 1
-      s_values: []
+      target_neighbor_counts: [100, 70, 50, 30]
       mean_penalty_weight: 0.0
-      objective_rtol: 1.0e-6
-      objective_atol: 0.0
-      convergence_patience: 2
-      num_directions: 1
+      num_directions: 2
       joint_optimization: false
       max_steps: 30
 
   - model_name: one_s_gmm_multi_direction
     target:
       _target_: src_np.gmm.OneSGaussianMixtureModel
-      k: 3
       init: kmeans
       n_init: 3
-      s_values: [1.0, 2.0, 4.0]
+      target_neighbor_counts: [100, 70, 50, 30]
       mean_penalty_weight: 0.0
       objective_rtol: 1.0e-6
       objective_atol: 0.0
@@ -49,21 +45,6 @@ models:
       joint_optimization: false
       max_steps: 30
 
-  - model_name: one_s_gmm_joint_penalized
-    target:
-      _target_: src_np.gmm.OneSGaussianMixtureModel
-      k: 3
-      init: kmeans
-      n_init: 3
-      s_values: [1.0, 2.0]
-      mean_penalty_weight: 0.05
-      objective_rtol: 1.0e-6
-      objective_atol: 0.0
-      convergence_patience: 3
-      num_directions: 2
-      joint_optimization: true
-      max_steps: 30
-
 datasets:
   - ${dataset_defs.spherical_well_separated}
-  - ${dataset_defs.diag_imbalanced}
+  # - ${dataset_defs.diag_imbalanced}

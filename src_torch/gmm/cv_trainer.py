@@ -8,14 +8,14 @@ from typing import Iterable
 import torch
 from sklearn.model_selection import KFold
 
-from src.gmm.gmm import GaussianMomentModel
-from src.gmm.optimization import OptimizationStrategy
-from src.gmm.test_functions_utils.bandwidth_generators import (
+from src_torch.gmm.gmm import GaussianMomentModel
+from src_torch.gmm.optimization import OptimizationStrategy
+from src_torch.gmm.test_functions_utils.bandwidth_generators import (
     BaseBandwidthGenerator,
     DimensionAwareBandwidthGenerator,
 )
-from src.gmm.trainer import Trainer
-from src.metrics.common import isotropic_covariances, log_prob_gmm
+from src_torch.gmm.trainer import Trainer
+from src_torch.metrics.common import isotropic_covariances, log_prob_gmm
 
 
 @dataclass(frozen=True)

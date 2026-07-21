@@ -1,0 +1,84 @@
+defaults:
+  - metrics: optimization
+  - aggregators: all
+  - datasets/10d_spherical_well_separated@dataset_defs.spherical_well_separated
+  - datasets/10d_spherical_bad_separated@dataset_defs.spherical_bad_separated
+  - _self_
+
+run_name: optimization_continuation_controls
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 20
+  model_seeds_per_dataset: 10
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+population_model: &population_model
+  _target_: experiments.wrappers.PopulationWrapper
+  init: null
+  means_noise_coef: 0.1
+  sigmas_noise_coef: 0.1
+  n_init: 1
+  mean_penalty_weight: 0.0
+  num_directions: 2
+  joint_optimization: false
+  max_steps: 30
+
+models:
+  - model_name: one_s_30_steps_150
+    target:
+      <<: *population_model
+      target_neighbor_counts: [30]
+      max_steps: 150
+  - model_name: decreasing_s_200_100_70_50_30
+    target:
+      <<: *population_model
+      target_neighbor_counts: [200, 100, 70, 50, 30]
+      max_steps: 30
+  - model_name: decreasing_s_200_70_30
+    target:
+      <<: *population_model
+      target_neighbor_counts: [200, 70, 30]
+      max_steps: 50
+  - model_name: decreasing_s_100_50_30
+    target:
+      <<: *population_model
+      target_neighbor_counts: [100, 50, 30]
+      max_steps: 50
+  - model_name: decreasing_s_50_30
+    target:
+      <<: *population_model
+      target_neighbor_counts: [50, 30]
+      max_steps: 75
+  - model_name: one_s_10_steps_150
+    target:
+      <<: *population_model
+      target_neighbor_counts: [10]
+      max_steps: 150
+  - model_name: decreasing_s_200_70_30_10
+    target:
+      <<: *population_model
+      target_neighbor_counts: [200, 70, 30, 10]
+      max_steps: 37
+  - model_name: one_s_5_steps_150
+    target:
+      <<: *population_model
+      target_neighbor_counts: [5]
+      max_steps: 150
+  - model_name: decreasing_s_200_70_30_10_5
+    target:
+      <<: *population_model
+      target_neighbor_counts: [200, 70, 30, 10, 5]
+      max_steps: 30
+
+datasets:
+  - ${dataset_defs.spherical_well_separated}
+  - ${dataset_defs.spherical_bad_separated}

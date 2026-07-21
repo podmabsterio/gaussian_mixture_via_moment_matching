@@ -1,0 +1,12 @@
+name: spherical_bad_separated
+target:
+  _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 800
+  covariance_type: spherical
+  variance_spread: 1.5
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 10.0
+  min_mahalanobis_distance: 1.5

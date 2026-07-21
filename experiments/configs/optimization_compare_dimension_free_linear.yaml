@@ -1,0 +1,150 @@
+defaults:
+  - metrics: optimization
+  - aggregators: all
+  - _self_
+
+run_name: optimization_compare_dimension_free_linear
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 20
+  model_seeds_per_dataset: 5
+  n_jobs: 4
+  backend: loky
+  batch_size: auto
+
+np_oracle: &np_oracle
+  _target_: experiments.wrappers.OracleInitWrapper
+  init: null
+  means_noise_coef: 0.1
+  sigmas_noise_coef: 0.1
+  n_init: 1
+  mean_penalty_weight: 0.0
+  num_directions: 2
+  joint_optimization: false
+  max_steps: 150
+
+torch_linear: &torch_linear
+  _target_: experiments.wrappers.TorchDimensionFreeLinearWrapper
+  means_noise_coef: 0.1
+  sigmas_noise_coef: 0.1
+  num_directions: 2
+  include_base_kernel: false
+  loss_mode: euclidean
+  relaxed_parametrization: false
+  precompute_Z: true
+  optimizer: lbfgs
+  lr: 1.0
+  max_steps: 20
+  batch_size: null
+  Z_batch_size: null
+
+torch_base_linear: &torch_base_linear
+  <<: *torch_linear
+  include_base_kernel: true
+  num_directions: 1
+
+models:
+  - model_name: np_one_s_50
+    target:
+      <<: *np_oracle
+      target_neighbor_counts: [50]
+  - model_name: np_one_s_100
+    target:
+      <<: *np_oracle
+      target_neighbor_counts: [100]
+  - model_name: np_one_s_150
+    target:
+      <<: *np_oracle
+      target_neighbor_counts: [150]
+
+  - model_name: torch_linear_one_s_50
+    target:
+      <<: *torch_linear
+      target_neighbor_counts: [50]
+  - model_name: torch_linear_one_s_100
+    target:
+      <<: *torch_linear
+      target_neighbor_counts: [100]
+  - model_name: torch_linear_one_s_150
+    target:
+      <<: *torch_linear
+      target_neighbor_counts: [150]
+
+  - model_name: torch_base_linear_one_s_50
+    target:
+      <<: *torch_base_linear
+      target_neighbor_counts: [50]
+  - model_name: torch_base_linear_one_s_100
+    target:
+      <<: *torch_base_linear
+      target_neighbor_counts: [100]
+  - model_name: torch_base_linear_one_s_150
+    target:
+      <<: *torch_base_linear
+      target_neighbor_counts: [150]
+
+  - model_name: torch_linear_multi_s_50_100_150
+    target:
+      <<: *torch_linear
+      target_neighbor_counts: [50, 100, 150]
+  - model_name: torch_base_linear_multi_s_50_100_150
+    target:
+      <<: *torch_base_linear
+      target_neighbor_counts: [50, 100, 150]
+
+datasets:
+  - name: spherical_bad_separated_n1000
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 1000
+      covariance_type: spherical
+      variance_spread: 1.5
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 2.0
+  - name: spherical_well_separated_n1000
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 1000
+      covariance_type: spherical
+      variance_spread: 1.5
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 5.0
+  - name: spherical_bad_separated_n200
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 200
+      covariance_type: spherical
+      variance_spread: 1.5
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 2.0
+  - name: spherical_well_separated_n200
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 200
+      covariance_type: spherical
+      variance_spread: 1.5
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 5.0

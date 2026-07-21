@@ -1,0 +1,75 @@
+defaults:
+  - metrics: optimization
+  - aggregators: all
+  - _self_
+
+run_name: optimization_empirical_s_selection_n200
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 40
+  model_seeds_per_dataset: 5
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+oracle_model: &oracle_model
+  _target_: experiments.wrappers.OracleInitWrapper
+  init: null
+  means_noise_coef: 0.1
+  sigmas_noise_coef: 0.1
+  n_init: 1
+  mean_penalty_weight: 0.0
+  num_directions: 2
+  joint_optimization: false
+  max_steps: 150
+
+models:
+  - model_name: one_s_20
+    target:
+      <<: *oracle_model
+      target_neighbor_counts: [20]
+  - model_name: one_s_30
+    target:
+      <<: *oracle_model
+      target_neighbor_counts: [30]
+  - model_name: one_s_50
+    target:
+      <<: *oracle_model
+      target_neighbor_counts: [50]
+  - model_name: one_s_70
+    target:
+      <<: *oracle_model
+      target_neighbor_counts: [70]
+  - model_name: one_s_100
+    target:
+      <<: *oracle_model
+      target_neighbor_counts: [100]
+  - model_name: one_s_140
+    target:
+      <<: *oracle_model
+      target_neighbor_counts: [140]
+  - model_name: one_s_180
+    target:
+      <<: *oracle_model
+      target_neighbor_counts: [180]
+
+datasets:
+  - name: spherical_bad_separated_n200
+    target:
+      _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 200
+      covariance_type: spherical
+      variance_spread: 1.5
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 10.0
+      min_mahalanobis_distance: 2.0
