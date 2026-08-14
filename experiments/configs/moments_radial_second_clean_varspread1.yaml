@@ -1,0 +1,155 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_radial_second_clean_varspread1
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+# First radial-second-moment exploration on the exact clean spread-1 dataset
+# design used by moments_order_bandwidth_ablation_loo: dataset seeds 1--20 and
+# model seeds 1--2.  Only new models with an active radial family are fitted.
+# Existing references must be read from
+# results/moments_order_bandwidth_ablation_loo/balanced_d10_n200_hard_varspread1:
+#   order_first3_s_n133, order_second3_s_n133,
+#   order_zero_first3_s_n133, order_first3_second3_s_n133,
+#   em_kmeans_reg1e2, and kmeans_spherical.
+#
+# 1 dataset x 20 dataset draws x 2 model seeds x 8 new models = 320 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 20
+  dataset_seed_start: 1
+  model_seeds_per_dataset: 2
+  save_raw_results: true
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+# External quality metrics match the preceding runs.  The extra diagnostics
+# check whether compensation changes numerical conditioning or creates
+# degenerate component variances.  Final loss is not comparable across rows
+# with different family weights.
+metrics:
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.TrueRelativeObjectiveDrop
+  - _target_: experiments.metrics.OptimizationOuterIterations
+  - _target_: experiments.metrics.OptimizationConverged
+  - _target_: experiments.metrics.FinalMeanGradientInfinityNorm
+  - _target_: experiments.metrics.FinalLogVarianceGradientInfinityNorm
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+  - _target_: experiments.metrics.MinimumEstimatedWeight
+  - _target_: experiments.metrics.EstimatedVarianceRatio
+
+radial_base: &radial_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  # The broad scale is the selected clean spread-1 scale in the old run.
+  target_neighbor_counts: [133]
+  n_zero_moments: 0
+  n_first_moments: 0
+  n_second_moments: 0
+  n_radial_second_moments: 1
+  second_moment_mode: same_direction
+  zero_moment_weight: 0.0
+  first_moment_weight: 1.0
+  second_moment_weight: 0.0
+  radial_second_moment_weight: 1.0
+  compensated_radial_second_moments: false
+  normalize_moment_losses: true
+  scale_normalize_moments: true
+  leave_one_out: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+  joint_polish_sweeps: 0
+  joint_polish_max_nfev: null
+
+first_radial_base: &first_radial_base
+  <<: *radial_base
+  n_first_moments: 3
+
+models:
+  # Direction-free second-order family by itself.  Its absolute family weight
+  # is irrelevant to the optimum because it is the only active loss block.
+  - model_name: radial_s_n133
+    target:
+      <<: *radial_base
+
+  - model_name: radial_comp_s_n133
+    target:
+      <<: *radial_base
+      compensated_radial_second_moments: true
+
+  # Add radial scale information to the three-first-direction backbone.  The
+  # weight grid contains the nominally equal scale and the 4--8 range selected
+  # for directional second moments in the preceding spread-3 experiments.
+  - model_name: first3_radial_w1_s_n133
+    target:
+      <<: *first_radial_base
+
+  - model_name: first3_radial_w4_s_n133
+    target:
+      <<: *first_radial_base
+      radial_second_moment_weight: 4.0
+
+  - model_name: first3_radial_w8_s_n133
+    target:
+      <<: *first_radial_base
+      radial_second_moment_weight: 8.0
+
+  - model_name: first3_radial_comp_w1_s_n133
+    target:
+      <<: *first_radial_base
+      compensated_radial_second_moments: true
+
+  - model_name: first3_radial_comp_w4_s_n133
+    target:
+      <<: *first_radial_base
+      radial_second_moment_weight: 4.0
+      compensated_radial_second_moments: true
+
+  - model_name: first3_radial_comp_w8_s_n133
+    target:
+      <<: *first_radial_base
+      radial_second_moment_weight: 8.0
+      compensated_radial_second_moments: true
+
+datasets:
+  - name: balanced_d10_n200_hard_varspread1
+    target:
+      _target_: experiments.synthetic_data.gaussian.GaussianDatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 200
+      covariance_type: spherical
+      variance_spread: 1.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 1.0e6
+      min_mahalanobis_distance: 2.0

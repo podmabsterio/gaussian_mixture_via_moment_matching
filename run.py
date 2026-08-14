@@ -32,6 +32,8 @@ def main(config):
         )
         results = runner.run(dataset_cfg.target)
         aggregated_results = aggregator.aggregate(results)
+        if runner.raw_results_ is not None:
+            aggregated_results["raw"] = runner.raw_results_
         save_dict_to_path(dataset_dir, aggregated_results)
 
 

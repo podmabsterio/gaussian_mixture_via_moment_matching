@@ -34,6 +34,13 @@ class Evaluator:
             "labels": labels,
         }
 
+    def create_empty_metrics(self):
+        result = {}
+        for metric in self.metrics:
+            result[metric.name] = 0.0
+
+        return result
+
     def __call__(self, dataset, estimated, model):
         kwargs = {"model": model}
         estimated = self.prepare_estimated_params(

@@ -10,4 +10,6 @@ class FinalLoss(BaseMetric):
         model,
         **kwargs,
     ):
+        if hasattr(model, "objective_"):
+            return float(model.objective_)
         return float(model.history_per_s[-1][-1])

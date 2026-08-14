@@ -1,0 +1,384 @@
+defaults:
+  - metrics: moments_global
+  - aggregators: all
+  - _self_
+
+run_name: optimization_moments_global_sweep
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+# 20 scenarios x 10 dataset draws x 2 model seeds x 20 models = 8000 fits.
+# K-means uses multiple restarts, so two model seeds mainly measure variation
+# from test directions, noisy centers, and local optimization.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: 1
+  num_datasets: 10
+  model_seeds_per_dataset: 2
+  n_jobs: 4
+  backend: loky
+  batch_size: auto
+
+# Main research configuration. The three automatically selected bandwidths
+# are fitted jointly, all moment families share one simplex-constrained weight
+# vector, and every moment-family loss is normalized by its own row count.
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: auto
+  n_zero_moments: 1
+  n_first_moments: 1
+  n_second_moments: 1
+  second_moment_mode: same_direction
+  zero_moment_weight: 1.0
+  first_moment_weight: 1.0
+  second_moment_weight: 1.0
+  normalize_moment_losses: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-6
+  objective_atol: 0.0
+  convergence_patience: 2
+  max_steps: 30
+  geom_sweeps: 1
+  ls_max_nfev: 20
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1.0e-4
+
+models:
+  # Moment-composition ablation. The first six models all use exactly three
+  # moment rows per base center, so their cost is directly comparable. These
+  # configurations test which parameter groups are identifiable without each
+  # family, including deliberately weak second-only and zero+second controls.
+  - model_name: moment_first_only3
+    target:
+      <<: *moment_base
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: moment_second_only3
+    target:
+      <<: *moment_base
+      n_zero_moments: 0
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: moment_zero1_first2
+    target:
+      <<: *moment_base
+      n_zero_moments: 1
+      n_first_moments: 2
+      n_second_moments: 0
+
+  - model_name: moment_first2_second1
+    target:
+      <<: *moment_base
+      n_zero_moments: 0
+      n_first_moments: 2
+      n_second_moments: 1
+
+  - model_name: moment_zero1_second2
+    target:
+      <<: *moment_base
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 2
+
+  - model_name: moment_all_balanced
+    target:
+      <<: *moment_base
+
+  # More rows reduce Monte Carlo noise within a moment family without changing
+  # its total loss weight, because every family is normalized by its row count.
+  # The two models have equal total cost (five rows per base center).
+  - model_name: moment_all_first_rich
+    target:
+      <<: *moment_base
+      n_zero_moments: 1
+      n_first_moments: 3
+      n_second_moments: 1
+
+  - model_name: moment_all_second_rich
+    target:
+      <<: *moment_base
+      n_zero_moments: 1
+      n_first_moments: 1
+      n_second_moments: 3
+
+  # Test whether cross-directional second moments add information beyond the
+  # squared directional moment used by the main configuration.
+  - model_name: moment_all_cross_second
+    target:
+      <<: *moment_base
+      second_moment_mode: two_directions
+
+  # Loss-balance sensitivity. A logarithmic 16x span around the default is
+  # large enough to reveal under/over-weighting without making the block vanish.
+  - model_name: moment_all_second_weight025
+    target:
+      <<: *moment_base
+      second_moment_weight: 0.25
+
+  - model_name: moment_all_second_weight4
+    target:
+      <<: *moment_base
+      second_moment_weight: 4.0
+
+  # Optimization ablations around the balanced model.
+  - model_name: moment_all_non_negative
+    target:
+      <<: *moment_base
+      amplitude_optimization: non_negative
+
+  - model_name: moment_all_sequential_s
+    target:
+      <<: *moment_base
+      s_optimization: sequential
+
+  - model_name: moment_all_joint_geometry
+    target:
+      <<: *moment_base
+      geometry_optimization: joint
+
+  # Test-center budget and sampling. full-data versus 50 exact centers isolates
+  # subsampling; exact-50 versus noisy-50 isolates perturbation; noisy-50 versus
+  # noisy-200 measures the benefit of additional independently sampled probes.
+  - model_name: moment_all_centers50_data
+    target:
+      <<: *moment_base
+      test_center_mode: data
+      n_test_centers: 50
+
+  - model_name: moment_all_centers50_noisy_auto
+    target:
+      <<: *moment_base
+      test_center_mode: noisy_data
+      n_test_centers: 50
+      test_center_noise_std: auto
+
+  - model_name: moment_all_centers200_noisy_auto
+    target:
+      <<: *moment_base
+      test_center_mode: noisy_data
+      n_test_centers: 200
+      test_center_noise_std: auto
+
+  # One intentionally packaged stabilization candidate. Detailed follow-up
+  # experiments should later separate the near-mean probes from the penalty.
+  - model_name: moment_all_stabilized
+    target:
+      <<: *moment_base
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+      mean_penalty_weight: 1.0e-3
+
+  # External calibration baselines, both using the same k-means information.
+  - model_name: sklearn_gmm_kmeans
+    target:
+      <<: *sklearn_gmm_kmeans
+
+  - model_name: sklearn_kmeans
+    target:
+      <<: *sklearn_kmeans
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 200
+  covariance_type: spherical
+  variance_spread: 1.5
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 10.0
+  min_mahalanobis_distance: 3.5
+
+datasets:
+  # Balanced 2 x 2 x 2 block: low/high dimension, low/high sample count,
+  # and hard/easy separation. Other distributional properties stay moderate.
+  - name: grid_d3_n60_hard
+    target:
+      <<: *dataset_base
+      n_features: 3
+      n_samples: 60
+      min_mahalanobis_distance: 2.0
+
+  - name: grid_d3_n60_easy
+    target:
+      <<: *dataset_base
+      n_features: 3
+      n_samples: 60
+      min_mahalanobis_distance: 6.0
+
+  - name: grid_d3_n500_hard
+    target:
+      <<: *dataset_base
+      n_features: 3
+      n_samples: 500
+      min_mahalanobis_distance: 2.0
+
+  - name: grid_d3_n500_easy
+    target:
+      <<: *dataset_base
+      n_features: 3
+      n_samples: 500
+      min_mahalanobis_distance: 6.0
+
+  - name: grid_d30_n60_hard
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 60
+      min_mahalanobis_distance: 2.0
+
+  - name: grid_d30_n60_easy
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 60
+      min_mahalanobis_distance: 6.0
+
+  - name: grid_d30_n500_hard
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 500
+      min_mahalanobis_distance: 2.0
+
+  - name: grid_d30_n500_easy
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 500
+      min_mahalanobis_distance: 6.0
+
+  # Full 2 x 2 x 2 stress block at d=10, n=200. concentration=20 gives
+  # near-balanced weights; concentration=0.3 deliberately creates tiny
+  # components. variance_spread is the max/min spherical variance ratio.
+  - name: stress_lowvar_uniform_hard
+    target:
+      <<: *dataset_base
+      variance_spread: 1.2
+      weights_concentration: 20.0
+      min_mahalanobis_distance: 2.0
+
+  - name: stress_lowvar_uniform_easy
+    target:
+      <<: *dataset_base
+      variance_spread: 1.2
+      weights_concentration: 20.0
+      min_mahalanobis_distance: 6.0
+
+  - name: stress_lowvar_imbalanced_hard
+    target:
+      <<: *dataset_base
+      variance_spread: 1.2
+      weights_concentration: 0.3
+      min_mahalanobis_distance: 2.0
+
+  - name: stress_lowvar_imbalanced_easy
+    target:
+      <<: *dataset_base
+      variance_spread: 1.2
+      weights_concentration: 0.3
+      min_mahalanobis_distance: 6.0
+
+  - name: stress_highvar_uniform_hard
+    target:
+      <<: *dataset_base
+      variance_spread: 6.0
+      weights_concentration: 20.0
+      min_mahalanobis_distance: 2.0
+
+  - name: stress_highvar_uniform_easy
+    target:
+      <<: *dataset_base
+      variance_spread: 6.0
+      weights_concentration: 20.0
+      min_mahalanobis_distance: 6.0
+
+  - name: stress_highvar_imbalanced_hard
+    target:
+      <<: *dataset_base
+      variance_spread: 6.0
+      weights_concentration: 0.3
+      min_mahalanobis_distance: 2.0
+
+  - name: stress_highvar_imbalanced_easy
+    target:
+      <<: *dataset_base
+      variance_spread: 6.0
+      weights_concentration: 0.3
+      min_mahalanobis_distance: 6.0
+
+  # More components: one genuinely difficult sparse/heteroscedastic case and
+  # one high-dimensional case with enough data and clean separation.
+  - name: components5_d10_n200_hard_imbalanced
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_components: 5
+      n_samples: 200
+      variance_spread: 6.0
+      weights_concentration: 0.3
+      min_mahalanobis_distance: 2.0
+
+  - name: components5_d30_n500_easy_uniform
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_components: 5
+      n_samples: 500
+      variance_spread: 1.2
+      weights_concentration: 20.0
+      min_mahalanobis_distance: 6.0
+
+  # Controlled model-misspecification. All evaluated estimators are spherical,
+  # while these datasets contain axis-aligned or rotated anisotropic components.
+  - name: misspecified_diag_d10_n200_hard
+    target:
+      <<: *dataset_base
+      covariance_type: diag
+      variance_spread: 3.0
+      anisotropy: 10.0
+      min_mahalanobis_distance: 2.0
+
+  - name: misspecified_full_d10_n500_easy_imbalanced
+    target:
+      <<: *dataset_base
+      n_samples: 500
+      covariance_type: full
+      variance_spread: 3.0
+      anisotropy: 10.0
+      weights_concentration: 0.3
+      min_mahalanobis_distance: 6.0

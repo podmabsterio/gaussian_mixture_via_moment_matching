@@ -1,0 +1,282 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_directional_skewness
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+# Controlled misspecification experiment for directionally skewed components.
+#
+# Each component has exactly the configured mean and covariance. Only its
+# higher-order shape changes: a standardized Gamma coordinate creates skewness
+# 2 / sqrt(gamma_shape) along one direction, while all orthogonal coordinates
+# remain Gaussian. Thus parameter errors retain their old interpretation.
+#
+# The full design crosses:
+#   2 data regimes x 2 separation levels x 3 skewness directions = 12 scenarios.
+# "hard" uses Mahalanobis separation 3.5: there is meaningful overlap without
+# making latent recovery nearly unidentified. "easy" retains the established
+# separation 6.0 calibration.
+#
+# Twenty dataset draws and three model seeds give
+# 12 x 20 x 3 x 13 = 9,360 fits. All models fitted to the same dataset draw are
+# scored on one shared independent sample of 10,000 observations.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 20
+  model_seeds_per_dataset: 3
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+# These metrics deliberately separate three questions:
+# - density approximation: true forward KL and held-out NLL;
+# - shape approximation without evaluating a density: sliced W2 and energy;
+# - latent-component recovery: conditional NLL, parameter errors, and ARI.
+# Sliced W2 uses both random projections and the known true skew directions.
+# Energy distance follows the requested training-X versus fitted-GMM-sample
+# definition. True KL's Monte Carlo SE makes numerical uncertainty explicit.
+metrics:
+  - _target_: experiments.metrics.TrueForwardKL
+  - _target_: experiments.metrics.TrueForwardKLStandardError
+  - _target_: experiments.metrics.HeldOutNegativeLogLikelihood
+  - _target_: experiments.metrics.SlicedWasserstein
+    num_samples: 3000
+    num_random_projections: 100
+    include_skewness_directions: true
+    seed: 17
+  - _target_: experiments.metrics.EnergyDistance
+    max_samples: 500
+    seed: 23
+  - _target_: experiments.metrics.ComponentConditionalNLL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+
+# Reuse the ten informative moment estimators from the contamination study.
+# Density-center filtering is deliberately disabled here: a skewed tail is
+# genuine component mass, not contamination, so filtering it would introduce a
+# second robustness intervention and obscure the comparison of objectives.
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: auto
+  n_zero_moments: 1
+  n_first_moments: 1
+  n_second_moments: 1
+  second_moment_mode: same_direction
+  zero_moment_weight: 1.0
+  first_moment_weight: 1.0
+  second_moment_weight: 1.0
+  normalize_moment_losses: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-6
+  objective_atol: 0.0
+  convergence_patience: 2
+  max_steps: 30
+  geom_sweeps: 1
+  ls_max_nfev: 20
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+
+second_n3_w025: &second_n3_w025
+  <<: *moment_base
+  n_second_moments: 3
+  second_moment_weight: 0.25
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1.0e-4
+
+models:
+  # Stabilization factorial at the balanced one-direction moment setting.
+  - model_name: stab_balanced_none
+    target:
+      <<: *moment_base
+
+  - model_name: stab_balanced_penalty
+    target:
+      <<: *moment_base
+      mean_penalty_weight: 1.0e-3
+
+  - model_name: stab_balanced_near
+    target:
+      <<: *moment_base
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+
+  - model_name: stab_balanced_both
+    target:
+      <<: *moment_base
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+      mean_penalty_weight: 1.0e-3
+
+  # The tuned three-second-direction family and its stabilization factorial.
+  - model_name: second_n3_w025
+    target:
+      <<: *second_n3_w025
+
+  - model_name: stab_n3_w025_penalty
+    target:
+      <<: *second_n3_w025
+      mean_penalty_weight: 1.0e-3
+
+  - model_name: stab_n3_w025_near
+    target:
+      <<: *second_n3_w025
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+
+  - model_name: stab_n3_w025_both
+    target:
+      <<: *second_n3_w025
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+      mean_penalty_weight: 1.0e-3
+
+  # Boundary second-order point and first-order-only control.
+  - model_name: second_n5_w050
+    target:
+      <<: *moment_base
+      n_second_moments: 5
+      second_moment_weight: 0.50
+
+  - model_name: moment_first_only3
+    target:
+      <<: *moment_base
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 0
+
+  # Likelihood baselines plus the shared-initialization control.
+  - model_name: em_kmeans_reg1e6
+    target:
+      <<: *sklearn_gmm_kmeans
+
+  - model_name: em_kmeans_reg1e2
+    target:
+      <<: *sklearn_gmm_kmeans
+      reg_covar: 1.0e-2
+
+  - model_name: kmeans_spherical
+    target:
+      <<: *sklearn_kmeans
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.directional_gamma.DirectionalGammaDatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 500
+  covariance_type: spherical
+  variance_spread: 6.0
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 20.0
+  min_mahalanobis_distance: 3.5
+  gamma_shape: 2.0
+  evaluation_num_samples: 10000
+
+datasets:
+  # Regime A: enough data and nearly equal weights. This is the cleanest
+  # causal comparison of random, outward, and overlap-increasing inward skew.
+  - name: balanced_hard_random
+    target:
+      <<: *dataset_base
+      skewness_direction: random
+
+  - name: balanced_hard_away
+    target:
+      <<: *dataset_base
+      skewness_direction: away
+
+  - name: balanced_hard_toward
+    target:
+      <<: *dataset_base
+      skewness_direction: toward
+
+  - name: balanced_easy_random
+    target:
+      <<: *dataset_base
+      min_mahalanobis_distance: 6.0
+      skewness_direction: random
+
+  - name: balanced_easy_away
+    target:
+      <<: *dataset_base
+      min_mahalanobis_distance: 6.0
+      skewness_direction: away
+
+  - name: balanced_easy_toward
+    target:
+      <<: *dataset_base
+      min_mahalanobis_distance: 6.0
+      skewness_direction: toward
+
+  # Regime B: fewer observations and moderately imbalanced weights. This is
+  # where likelihood fitting may spend two Gaussians on a skewed large
+  # component and fail to represent a smaller genuine component. Concentration
+  # 1.0 is intentionally milder than the previous 0.3 stress test so that the
+  # difficulty is not dominated by nearly absent components.
+  - name: scarce_imbalanced_hard_random
+    target: &scarce_imbalanced_hard
+      <<: *dataset_base
+      n_samples: 200
+      weights_concentration: 1.0
+      skewness_direction: random
+
+  - name: scarce_imbalanced_hard_away
+    target:
+      <<: *scarce_imbalanced_hard
+      skewness_direction: away
+
+  - name: scarce_imbalanced_hard_toward
+    target:
+      <<: *scarce_imbalanced_hard
+      skewness_direction: toward
+
+  - name: scarce_imbalanced_easy_random
+    target: &scarce_imbalanced_easy
+      <<: *scarce_imbalanced_hard
+      min_mahalanobis_distance: 6.0
+      skewness_direction: random
+
+  - name: scarce_imbalanced_easy_away
+    target:
+      <<: *scarce_imbalanced_easy
+      skewness_direction: away
+
+  - name: scarce_imbalanced_easy_toward
+    target:
+      <<: *scarce_imbalanced_easy
+      skewness_direction: toward

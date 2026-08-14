@@ -1,0 +1,391 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_varspread3_second_weight_directions_loo
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+# Joint refinement of the second-order family weight and its directional Monte
+# Carlo resolution at the selected bandwidth pair [17, 133].  The zero-order
+# family is either disabled or given the small stabilizing weight 1/16.  All
+# family counts remain enabled even at zero weight so test directions are nested
+# and comparable across cells for a fixed dataset/model seed.
+# The factorial uses w2 in {1, 2, 4, 8, 16} and D2 in {1, 3, 10, 20}.
+#
+# D2=20 means 4,000 second-order direction-center pairs per bandwidth when
+# n=200, which is sufficient to reveal whether quality is approaching a plateau.
+#
+# 1 dataset x 30 dataset draws x 2 model seeds x 48 models = 2,880 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 30
+  model_seeds_per_dataset: 2
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+# Loss values are diagnostics within a cell only: changing family weights or
+# direction counts changes the objective being optimized.
+metrics:
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.RelativeLossDrop
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: [17, 133]
+  n_zero_moments: 1
+  n_first_moments: 3
+  n_second_moments: 1
+  second_moment_mode: same_direction
+  zero_moment_weight: 0.0
+  first_moment_weight: 1.0
+  second_moment_weight: 2.0
+  normalize_moment_losses: true
+  scale_normalize_moments: true
+  leave_one_out: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+
+d2_1_base: &d2_1_base
+  <<: *moment_base
+  n_second_moments: 1
+
+d2_3_base: &d2_3_base
+  <<: *moment_base
+  n_second_moments: 3
+
+d2_10_base: &d2_10_base
+  <<: *moment_base
+  n_second_moments: 10
+
+d2_20_base: &d2_20_base
+  <<: *moment_base
+  n_second_moments: 20
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1.0e-4
+
+models:
+  # ------------------------------------------------------------------------
+  # D2 = 1 direction per test center.
+  # ------------------------------------------------------------------------
+  - model_name: weights_d2_1_w0_0_w1_1_w2_1
+    target:
+      <<: *d2_1_base
+      second_moment_weight: 1.0
+
+  - model_name: weights_d2_1_w0_0_w1_1_w2_2
+    target:
+      <<: *d2_1_base
+
+  - model_name: weights_d2_1_w0_0_w1_1_w2_4
+    target:
+      <<: *d2_1_base
+      second_moment_weight: 4.0
+
+  - model_name: weights_d2_1_w0_0_w1_1_w2_8
+    target:
+      <<: *d2_1_base
+      second_moment_weight: 8.0
+
+  - model_name: weights_d2_1_w0_0_w1_1_w2_16
+    target:
+      <<: *d2_1_base
+      second_moment_weight: 16.0
+
+  - model_name: weights_d2_1_w0_00625_w1_1_w2_1
+    target:
+      <<: *d2_1_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 1.0
+
+  - model_name: weights_d2_1_w0_00625_w1_1_w2_2
+    target:
+      <<: *d2_1_base
+      zero_moment_weight: 0.0625
+
+  - model_name: weights_d2_1_w0_00625_w1_1_w2_4
+    target:
+      <<: *d2_1_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 4.0
+
+  - model_name: weights_d2_1_w0_00625_w1_1_w2_8
+    target:
+      <<: *d2_1_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 8.0
+
+  - model_name: weights_d2_1_w0_00625_w1_1_w2_16
+    target:
+      <<: *d2_1_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 16.0
+
+  - model_name: second_only_d2_1
+    target:
+      <<: *d2_1_base
+      first_moment_weight: 0.0
+      second_moment_weight: 1.0
+
+  # ------------------------------------------------------------------------
+  # D2 = 3, the directional resolution used in preceding experiments.
+  # ------------------------------------------------------------------------
+  - model_name: weights_d2_3_w0_0_w1_1_w2_1
+    target:
+      <<: *d2_3_base
+      second_moment_weight: 1.0
+
+  - model_name: weights_d2_3_w0_0_w1_1_w2_2
+    target:
+      <<: *d2_3_base
+
+  - model_name: weights_d2_3_w0_0_w1_1_w2_4
+    target:
+      <<: *d2_3_base
+      second_moment_weight: 4.0
+
+  - model_name: weights_d2_3_w0_0_w1_1_w2_8
+    target:
+      <<: *d2_3_base
+      second_moment_weight: 8.0
+
+  - model_name: weights_d2_3_w0_0_w1_1_w2_16
+    target:
+      <<: *d2_3_base
+      second_moment_weight: 16.0
+
+  - model_name: weights_d2_3_w0_00625_w1_1_w2_1
+    target:
+      <<: *d2_3_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 1.0
+
+  - model_name: weights_d2_3_w0_00625_w1_1_w2_2
+    target:
+      <<: *d2_3_base
+      zero_moment_weight: 0.0625
+
+  - model_name: weights_d2_3_w0_00625_w1_1_w2_4
+    target:
+      <<: *d2_3_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 4.0
+
+  - model_name: weights_d2_3_w0_00625_w1_1_w2_8
+    target:
+      <<: *d2_3_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 8.0
+
+  - model_name: weights_d2_3_w0_00625_w1_1_w2_16
+    target:
+      <<: *d2_3_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 16.0
+
+  - model_name: second_only_d2_3
+    target:
+      <<: *d2_3_base
+      first_moment_weight: 0.0
+      second_moment_weight: 1.0
+
+  # ------------------------------------------------------------------------
+  # D2 = 10.
+  # ------------------------------------------------------------------------
+  - model_name: weights_d2_10_w0_0_w1_1_w2_1
+    target:
+      <<: *d2_10_base
+      second_moment_weight: 1.0
+
+  - model_name: weights_d2_10_w0_0_w1_1_w2_2
+    target:
+      <<: *d2_10_base
+
+  - model_name: weights_d2_10_w0_0_w1_1_w2_4
+    target:
+      <<: *d2_10_base
+      second_moment_weight: 4.0
+
+  - model_name: weights_d2_10_w0_0_w1_1_w2_8
+    target:
+      <<: *d2_10_base
+      second_moment_weight: 8.0
+
+  - model_name: weights_d2_10_w0_0_w1_1_w2_16
+    target:
+      <<: *d2_10_base
+      second_moment_weight: 16.0
+
+  - model_name: weights_d2_10_w0_00625_w1_1_w2_1
+    target:
+      <<: *d2_10_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 1.0
+
+  - model_name: weights_d2_10_w0_00625_w1_1_w2_2
+    target:
+      <<: *d2_10_base
+      zero_moment_weight: 0.0625
+
+  - model_name: weights_d2_10_w0_00625_w1_1_w2_4
+    target:
+      <<: *d2_10_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 4.0
+
+  - model_name: weights_d2_10_w0_00625_w1_1_w2_8
+    target:
+      <<: *d2_10_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 8.0
+
+  - model_name: weights_d2_10_w0_00625_w1_1_w2_16
+    target:
+      <<: *d2_10_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 16.0
+
+  - model_name: second_only_d2_10
+    target:
+      <<: *d2_10_base
+      first_moment_weight: 0.0
+      second_moment_weight: 1.0
+
+  # ------------------------------------------------------------------------
+  # D2 = 20.
+  # ------------------------------------------------------------------------
+  - model_name: weights_d2_20_w0_0_w1_1_w2_1
+    target:
+      <<: *d2_20_base
+      second_moment_weight: 1.0
+
+  - model_name: weights_d2_20_w0_0_w1_1_w2_2
+    target:
+      <<: *d2_20_base
+
+  - model_name: weights_d2_20_w0_0_w1_1_w2_4
+    target:
+      <<: *d2_20_base
+      second_moment_weight: 4.0
+
+  - model_name: weights_d2_20_w0_0_w1_1_w2_8
+    target:
+      <<: *d2_20_base
+      second_moment_weight: 8.0
+
+  - model_name: weights_d2_20_w0_0_w1_1_w2_16
+    target:
+      <<: *d2_20_base
+      second_moment_weight: 16.0
+
+  - model_name: weights_d2_20_w0_00625_w1_1_w2_1
+    target:
+      <<: *d2_20_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 1.0
+
+  - model_name: weights_d2_20_w0_00625_w1_1_w2_2
+    target:
+      <<: *d2_20_base
+      zero_moment_weight: 0.0625
+
+  - model_name: weights_d2_20_w0_00625_w1_1_w2_4
+    target:
+      <<: *d2_20_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 4.0
+
+  - model_name: weights_d2_20_w0_00625_w1_1_w2_8
+    target:
+      <<: *d2_20_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 8.0
+
+  - model_name: weights_d2_20_w0_00625_w1_1_w2_16
+    target:
+      <<: *d2_20_base
+      zero_moment_weight: 0.0625
+      second_moment_weight: 16.0
+
+  - model_name: second_only_d2_20
+    target:
+      <<: *d2_20_base
+      first_moment_weight: 0.0
+      second_moment_weight: 1.0
+
+  # First-only lower endpoint; D2 is generated but has zero objective weight.
+  - model_name: first_only
+    target:
+      <<: *d2_1_base
+      second_moment_weight: 0.0
+
+  - model_name: em_kmeans_reg1e6
+    target:
+      <<: *sklearn_gmm_kmeans
+
+  - model_name: em_kmeans_reg1e2
+    target:
+      <<: *sklearn_gmm_kmeans
+      reg_covar: 1.0e-2
+
+  - model_name: kmeans_spherical
+    target:
+      <<: *sklearn_kmeans
+
+datasets:
+  - name: balanced_d10_n200_hard_varspread3
+    target:
+      _target_: experiments.synthetic_data.gaussian.GaussianDatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 200
+      covariance_type: spherical
+      variance_spread: 3.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 1.0e6
+      min_mahalanobis_distance: 2.0

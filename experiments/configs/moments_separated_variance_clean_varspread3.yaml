@@ -1,0 +1,249 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_separated_variance_clean_varspread3
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+# Paired clean spread-3 comparison on dataset seeds 1--30 and model seeds 1--2.
+# Only the two new optimizers are run; exact legacy references already exist.
+# Backbones cover scale-poor M1, strong pure directional M2, the selected
+# M1+8*M2 model, two zero-containing models, and one radial-containing model.
+# M0/16+M1 is the clean no-M2 test of the new separation idea;
+# M0/16+M1+4*M2 is the best old zero-containing spread-3 configuration;
+# M1+4*M2+4*R2 is the best radial-containing model and sole radial row.
+#
+# Existing references:
+# results/moments_varspread3_second_weight_directions_loo/
+#   balanced_d10_n200_hard_varspread3/raw.csv:
+#     first_only, second_only_d2_10,
+#     weights_d2_10_w0_0_w1_1_w2_8,
+#     weights_d2_10_w0_00625_w1_1_w2_4.
+# results/moments_varspread3_order_weights_loo/
+#   balanced_d10_n200_hard_varspread3/raw.csv:
+#     weights_s_n17_n133_w0_00625_w1_1_w2_0.
+# results/moments_radial_second_clean_varspread3/
+#   balanced_d10_n200_hard_varspread3/raw.csv:
+#     first3_second10_w4_radial_w4_s_n17_n133.
+#
+# 1 dataset x 30 draws x 2 model seeds x 12 new models = 720 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 30
+  dataset_seed_start: 1
+  model_seeds_per_dataset: 2
+  save_raw_results: true
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+metrics:
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.TrueRelativeObjectiveDrop
+  - _target_: experiments.metrics.OptimizationOuterIterations
+  - _target_: experiments.metrics.OptimizationConverged
+  - _target_: experiments.metrics.GeometryFunctionEvaluations
+  - _target_: experiments.metrics.GeometryMaxEvaluationsRate
+  - _target_: experiments.metrics.GeometryEtaBoundHitRate
+  - _target_: experiments.metrics.GeometryAcceptanceRate
+  - _target_: experiments.metrics.FinalMeanGradientInfinityNorm
+  - _target_: experiments.metrics.FinalLogVarianceGradientInfinityNorm
+  - _target_: experiments.metrics.FormulaVarianceUpdates
+  - _target_: experiments.metrics.FormulaVarianceInvalidUpdateRate
+  - _target_: experiments.metrics.FormulaVarianceQClipRate
+  - _target_: experiments.metrics.FormulaVarianceEtaStepBoundHitRate
+  - _target_: experiments.metrics.JointVarianceSweeps
+  - _target_: experiments.metrics.OuterObjectiveIncreaseRate
+  - _target_: experiments.metrics.MaximumRelativeOuterObjectiveIncrease
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+  - _target_: experiments.metrics.MinimumSelectedBandwidth
+  - _target_: experiments.metrics.MaximumSelectedBandwidth
+  - _target_: experiments.metrics.MinimumEstimatedWeight
+  - _target_: experiments.metrics.EstimatedVarianceRatio
+
+optimizer_base: &optimizer_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: [17, 133]
+  second_moment_mode: same_direction
+  normalize_moment_losses: true
+  scale_normalize_moments: true
+  leave_one_out: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+  joint_polish_sweeps: 0
+  joint_polish_max_nfev: null
+  variance_formula_q_bounds: [1.0e-4, 0.9999]
+
+# Exact test-function counts of the old first_only cell are retained even for
+# zero-weight families so its random first directions are paired exactly.
+first_only: &first_only
+  <<: *optimizer_base
+  n_zero_moments: 1
+  n_first_moments: 3
+  n_second_moments: 1
+  n_radial_second_moments: 0
+  zero_moment_weight: 0.0
+  first_moment_weight: 1.0
+  second_moment_weight: 0.0
+  radial_second_moment_weight: 0.0
+
+second10_only: &second10_only
+  <<: *first_only
+  n_second_moments: 10
+  first_moment_weight: 0.0
+  second_moment_weight: 1.0
+
+first3_second10_w8: &first3_second10_w8
+  <<: *second10_only
+  first_moment_weight: 1.0
+  second_moment_weight: 8.0
+
+zero_first3: &zero_first3
+  <<: *optimizer_base
+  # Match the old order-weight grid: zero-weight M2 directions remain present.
+  n_zero_moments: 1
+  n_first_moments: 3
+  n_second_moments: 3
+  n_radial_second_moments: 0
+  zero_moment_weight: 0.0625
+  first_moment_weight: 1.0
+  second_moment_weight: 0.0
+  radial_second_moment_weight: 0.0
+
+zero_first3_second10_w4: &zero_first3_second10_w4
+  <<: *optimizer_base
+  n_zero_moments: 1
+  n_first_moments: 3
+  n_second_moments: 10
+  n_radial_second_moments: 0
+  zero_moment_weight: 0.0625
+  first_moment_weight: 1.0
+  second_moment_weight: 4.0
+  radial_second_moment_weight: 0.0
+
+radial: &radial
+  <<: *optimizer_base
+  n_zero_moments: 0
+  n_first_moments: 0
+  n_second_moments: 0
+  n_radial_second_moments: 1
+  zero_moment_weight: 0.0
+  first_moment_weight: 0.0
+  second_moment_weight: 0.0
+  radial_second_moment_weight: 1.0
+  compensated_radial_second_moments: false
+
+first3_radial8: &first3_radial8
+  <<: *radial
+  n_first_moments: 3
+  first_moment_weight: 1.0
+  radial_second_moment_weight: 8.0
+
+first3_second10_w4_radial4: &first3_second10_w4_radial4
+  <<: *first3_radial8
+  n_second_moments: 10
+  second_moment_weight: 4.0
+  radial_second_moment_weight: 4.0
+
+models:
+  - model_name: first3_opt_formula
+    target:
+      <<: *first_only
+      optimizer_mode: formula_variance
+
+  - model_name: first3_opt_joint_sigma
+    target:
+      <<: *first_only
+      optimizer_mode: joint_variance
+
+  - model_name: second10_opt_formula
+    target:
+      <<: *second10_only
+      optimizer_mode: formula_variance
+
+  - model_name: second10_opt_joint_sigma
+    target:
+      <<: *second10_only
+      optimizer_mode: joint_variance
+
+  - model_name: first3_second10_w8_opt_formula
+    target:
+      <<: *first3_second10_w8
+      optimizer_mode: formula_variance
+
+  - model_name: first3_second10_w8_opt_joint_sigma
+    target:
+      <<: *first3_second10_w8
+      optimizer_mode: joint_variance
+
+  - model_name: zero_first3_opt_formula
+    target:
+      <<: *zero_first3
+      optimizer_mode: formula_variance
+
+  - model_name: zero_first3_opt_joint_sigma
+    target:
+      <<: *zero_first3
+      optimizer_mode: joint_variance
+
+  - model_name: zero_first3_second10_w4_opt_formula
+    target:
+      <<: *zero_first3_second10_w4
+      optimizer_mode: formula_variance
+
+  - model_name: zero_first3_second10_w4_opt_joint_sigma
+    target:
+      <<: *zero_first3_second10_w4
+      optimizer_mode: joint_variance
+
+  - model_name: first3_second10_w4_radial4_opt_formula
+    target:
+      <<: *first3_second10_w4_radial4
+      optimizer_mode: formula_variance
+
+  - model_name: first3_second10_w4_radial4_opt_joint_sigma
+    target:
+      <<: *first3_second10_w4_radial4
+      optimizer_mode: joint_variance
+
+datasets:
+  - name: balanced_d10_n200_hard_varspread3
+    target:
+      _target_: experiments.synthetic_data.gaussian.GaussianDatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 200
+      covariance_type: spherical
+      variance_spread: 3.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 1.0e6
+      min_mahalanobis_distance: 2.0

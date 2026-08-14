@@ -15,6 +15,10 @@ class BaseMetric:
         true_weights - true weights
         true_labels - true labels
         X - training data
+        evaluation_X - an independent sample from the true distribution
+        evaluation_labels - true component labels for evaluation_X
+        evaluation_true_log_pdf - exact true log-density on evaluation_X
+        skewness_directions - component skew directions in data coordinates
         For generating new samples metrics should use function sample_gm_data(means, weights, covariances, num_samples, seed=1)
         """
         raise NotImplementedError()

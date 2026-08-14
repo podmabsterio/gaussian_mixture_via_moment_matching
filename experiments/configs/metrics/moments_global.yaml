@@ -1,0 +1,11 @@
+# Quality metrics are comparable across all models. Loss metrics are retained
+# only as convergence diagnostics: their absolute values are not comparable
+# when moment families, row counts, or loss weights differ.
+- _target_: experiments.metrics.FinalLoss
+- _target_: experiments.metrics.RelativeLossDrop
+- _target_: experiments.metrics.ForwardKL
+- _target_: experiments.metrics.WeightsTV
+- _target_: experiments.metrics.MeansNormalizedError
+- _target_: experiments.metrics.CovariancesAffineInvariantError
+- _target_: experiments.metrics.AdjustedRandIndex
+- _target_: experiments.metrics.MacroF1

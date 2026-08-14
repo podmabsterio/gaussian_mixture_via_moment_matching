@@ -1,0 +1,369 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_robustness_ablation
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+# Robustness is assessed from 30 independent dataset draws and three model
+# seeds per draw. The repeated model seeds expose sensitivity to K-means,
+# random test directions, and local optimization; mean/median/std/IQR together
+# expose both typical quality and heavy failure tails.
+#
+# 18 scenarios x 30 datasets x 3 model seeds x 20 models = 32,400 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 30
+  model_seeds_per_dataset: 3
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+# Only externally comparable quality metrics are included. Final moment loss is
+# not comparable across the second-moment grid, and Macro F1 is omitted because
+# it is not invariant to a permutation of component labels. Runtime is still
+# emitted by the runner but is not a target of this experiment.
+metrics:
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+
+# Every moment model uses all observations as base test centers. Thus the
+# experiment changes the moment information and stabilization, not a
+# computational center budget. Near-mean probes are additional to these full
+# data-centered probes.
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: auto
+  n_zero_moments: 1
+  n_first_moments: 1
+  n_second_moments: 1
+  second_moment_mode: same_direction
+  zero_moment_weight: 1.0
+  first_moment_weight: 1.0
+  second_moment_weight: 1.0
+  normalize_moment_losses: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-6
+  objective_atol: 0.0
+  convergence_patience: 2
+  max_steps: 30
+  geom_sweeps: 1
+  ls_max_nfev: 20
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+
+# The promising point from the global sweep. It is used both inside the 3 x 3
+# second-moment grid and as a second anchor for the stabilization factorial.
+second_n3_w025: &second_n3_w025
+  <<: *moment_base
+  n_second_moments: 3
+  second_moment_weight: 0.25
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1.0e-4
+
+models:
+  # Factorial A: isolate the main effects and interaction of the two parts of
+  # the previous "stabilized" model at the original balanced moment setting.
+  - model_name: stab_balanced_none
+    target:
+      <<: *moment_base
+
+  - model_name: stab_balanced_penalty
+    target:
+      <<: *moment_base
+      mean_penalty_weight: 1.0e-3
+
+  - model_name: stab_balanced_near
+    target:
+      <<: *moment_base
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+
+  - model_name: stab_balanced_both
+    target:
+      <<: *moment_base
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+      mean_penalty_weight: 1.0e-3
+
+  # Factorial B: number of second-order directions controls Monte Carlo
+  # averaging, while second_moment_weight controls the total contribution of
+  # the whole second-order family after normalization by its row count.
+  - model_name: second_n1_w010
+    target:
+      <<: *moment_base
+      n_second_moments: 1
+      second_moment_weight: 0.10
+
+  - model_name: second_n1_w025
+    target:
+      <<: *moment_base
+      n_second_moments: 1
+      second_moment_weight: 0.25
+
+  - model_name: second_n1_w050
+    target:
+      <<: *moment_base
+      n_second_moments: 1
+      second_moment_weight: 0.50
+
+  - model_name: second_n3_w010
+    target:
+      <<: *moment_base
+      n_second_moments: 3
+      second_moment_weight: 0.10
+
+  - model_name: second_n3_w025
+    target:
+      <<: *second_n3_w025
+
+  - model_name: second_n3_w050
+    target:
+      <<: *moment_base
+      n_second_moments: 3
+      second_moment_weight: 0.50
+
+  - model_name: second_n5_w010
+    target:
+      <<: *moment_base
+      n_second_moments: 5
+      second_moment_weight: 0.10
+
+  - model_name: second_n5_w025
+    target:
+      <<: *moment_base
+      n_second_moments: 5
+      second_moment_weight: 0.25
+
+  - model_name: second_n5_w050
+    target:
+      <<: *moment_base
+      n_second_moments: 5
+      second_moment_weight: 0.50
+
+  # Factorial C: repeat stabilization around n_second=3, weight=0.25. The
+  # unstabilized cell is second_n3_w025 above. These three cells reveal whether
+  # stabilization and second-moment tuning have additive or interacting effects.
+  - model_name: stab_n3_w025_penalty
+    target:
+      <<: *second_n3_w025
+      mean_penalty_weight: 1.0e-3
+
+  - model_name: stab_n3_w025_near
+    target:
+      <<: *second_n3_w025
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+
+  - model_name: stab_n3_w025_both
+    target:
+      <<: *second_n3_w025
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+      mean_penalty_weight: 1.0e-3
+
+  # Lean control from the global sweep: establishes whether second moments
+  # improve on the strongest first-order-only configuration at all.
+  - model_name: moment_first_only3
+    target:
+      <<: *moment_base
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 0
+
+  # Likelihood controls use the same K-means initialization as the moment
+  # models. The second EM model tests whether ordinary covariance regularization
+  # already explains any apparent robustness gap.
+  - model_name: em_kmeans_reg1e6
+    target:
+      <<: *sklearn_gmm_kmeans
+
+  - model_name: em_kmeans_reg1e2
+    target:
+      <<: *sklearn_gmm_kmeans
+      reg_covar: 1.0e-2
+
+  # Initialization-only control. This separates gains of either objective from
+  # the strong K-means starting point shared by both model families.
+  - model_name: kmeans_spherical
+    target:
+      <<: *sklearn_kmeans
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.sampler_core.DatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 200
+  covariance_type: spherical
+  variance_spread: 6.0
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 20.0
+  min_mahalanobis_distance: 2.0
+
+datasets:
+  # Sample-size breakdown curve. Everything except n is fixed, so this directly
+  # tests the hypothesis that moment matching degrades more gracefully than EM
+  # as likelihood estimates become data-starved.
+  - name: sample_d10_n30_hard_highvar_uniform
+    target:
+      <<: *dataset_base
+      n_samples: 30
+
+  - name: sample_d10_n60_hard_highvar_uniform
+    target:
+      <<: *dataset_base
+      n_samples: 60
+
+  - name: sample_d10_n200_hard_highvar_uniform
+    target:
+      <<: *dataset_base
+      n_samples: 200
+
+  - name: sample_d10_n500_hard_highvar_uniform
+    target:
+      <<: *dataset_base
+      n_samples: 500
+
+  # Dimension-to-sample stress. The d=10, n=60 cell is shared with the sample
+  # ladder above; these additional cells vary only dimension.
+  - name: dimension_d3_n60_hard_highvar_uniform
+    target:
+      <<: *dataset_base
+      n_features: 3
+      n_samples: 60
+
+  - name: dimension_d30_n60_hard_highvar_uniform
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 60
+
+  - name: dimension_d60_n60_hard_highvar_uniform
+    target:
+      <<: *dataset_base
+      n_features: 60
+      n_samples: 60
+
+  - name: dimension_d30_n500_hard_highvar_uniform
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 500
+
+  # Controlled 2 x 2 variance/weight block at fixed hard separation. This
+  # distinguishes instability caused by heteroscedasticity from instability
+  # caused by poorly represented components and tests their interaction.
+  - name: stress_lowvar_uniform_hard
+    target:
+      <<: *dataset_base
+      variance_spread: 1.2
+      weights_concentration: 20.0
+
+  - name: stress_lowvar_imbalanced_hard
+    target:
+      <<: *dataset_base
+      variance_spread: 1.2
+      weights_concentration: 0.3
+
+  - name: stress_highvar_imbalanced_hard
+    target:
+      <<: *dataset_base
+      variance_spread: 6.0
+      weights_concentration: 0.3
+
+  # Separation curve for the hardest heteroscedastic/imbalanced distribution.
+  # The hard endpoint is the preceding scenario.
+  - name: separation_medium_highvar_imbalanced
+    target:
+      <<: *dataset_base
+      weights_concentration: 0.3
+      min_mahalanobis_distance: 3.5
+
+  - name: separation_easy_highvar_imbalanced
+    target:
+      <<: *dataset_base
+      weights_concentration: 0.3
+      min_mahalanobis_distance: 6.0
+
+  # Component-count stress and a well-conditioned five-component calibration.
+  - name: components5_d10_n200_hard_highvar_imbalanced
+    target:
+      <<: *dataset_base
+      n_components: 5
+      weights_concentration: 0.3
+
+  - name: components5_d30_n500_easy_lowvar_uniform
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_components: 5
+      n_samples: 500
+      variance_spread: 1.2
+      weights_concentration: 20.0
+      min_mahalanobis_distance: 6.0
+
+  # All fitted estimators remain spherical here. These scenarios measure
+  # robustness to covariance misspecification rather than recovery of a model
+  # that lies inside the fitted family.
+  - name: misspecified_diag_d10_n200_hard
+    target:
+      <<: *dataset_base
+      covariance_type: diag
+      variance_spread: 3.0
+      anisotropy: 10.0
+      weights_concentration: 20.0
+
+  - name: misspecified_full_d10_n500_easy_imbalanced
+    target:
+      <<: *dataset_base
+      n_samples: 500
+      covariance_type: full
+      variance_spread: 3.0
+      anisotropy: 10.0
+      weights_concentration: 0.3
+      min_mahalanobis_distance: 6.0
+
+  # Easy, well-specified calibration: a robust method should not pay a large
+  # price when likelihood estimation is already in its favorable regime.
+  - name: calibration_d10_n500_easy_lowvar_uniform
+    target:
+      <<: *dataset_base
+      n_samples: 500
+      variance_spread: 1.2
+      weights_concentration: 20.0
+      min_mahalanobis_distance: 6.0

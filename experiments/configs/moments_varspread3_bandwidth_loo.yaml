@@ -1,0 +1,255 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_varspread3_bandwidth_loo
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+# Focused bandwidth-identification experiment with leave-one-out responses.
+# It separates the effect of a small bandwidth from genuine multi-scale gains
+# at the transition between the nearly homoscedastic (spread 1--1.2) and
+# strongly heteroscedastic (spread 6) regimes.  Moment weights and zero-order
+# moments are deliberately excluded.  The 30 independent datasets are the
+# units of replication; two model seeds reduce Monte Carlo noise from sampled
+# directions.
+#
+# 1 dataset x 30 dataset draws x 2 model seeds x 27 models = 1,620 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 30
+  model_seeds_per_dataset: 2
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+metrics:
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.RelativeLossDrop
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: [133]
+  n_zero_moments: 0
+  n_first_moments: 3
+  n_second_moments: 0
+  second_moment_mode: same_direction
+  zero_moment_weight: 1.0
+  first_moment_weight: 1.0
+  second_moment_weight: 1.0
+  normalize_moment_losses: true
+  scale_normalize_moments: true
+  leave_one_out: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+
+second_base: &second_base
+  <<: *moment_base
+  n_first_moments: 0
+  n_second_moments: 3
+
+first_second_base: &first_second_base
+  <<: *moment_base
+  n_second_moments: 3
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1.0e-4
+
+models:
+  # ------------------------------------------------------------------------
+  # Single bandwidths.  The n17 and n33 controls were missing from the first
+  # version and are necessary to distinguish a local-scale effect from a true
+  # multi-scale effect.
+  # ------------------------------------------------------------------------
+  - model_name: first3_s_n17
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17]
+
+  - model_name: second3_s_n17
+    target:
+      <<: *second_base
+      target_neighbor_counts: [17]
+
+  - model_name: first3_second3_s_n17
+    target:
+      <<: *first_second_base
+      target_neighbor_counts: [17]
+
+  - model_name: first3_s_n33
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [33]
+
+  - model_name: second3_s_n33
+    target:
+      <<: *second_base
+      target_neighbor_counts: [33]
+
+  - model_name: first3_second3_s_n33
+    target:
+      <<: *first_second_base
+      target_neighbor_counts: [33]
+
+  - model_name: first3_s_n67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+
+  - model_name: second3_s_n67
+    target:
+      <<: *second_base
+      target_neighbor_counts: [67]
+
+  - model_name: first3_second3_s_n67
+    target:
+      <<: *first_second_base
+      target_neighbor_counts: [67]
+
+  - model_name: first3_s_n133
+    target:
+      <<: *moment_base
+
+  - model_name: second3_s_n133
+    target:
+      <<: *second_base
+
+  - model_name: first3_second3_s_n133
+    target:
+      <<: *first_second_base
+
+  # ------------------------------------------------------------------------
+  # Two-scale sets isolate which broader bandwidth, if any, adds information
+  # beyond the local n17 equations.
+  # ------------------------------------------------------------------------
+  - model_name: first3_s_n17_n67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67]
+
+  - model_name: second3_s_n17_n67
+    target:
+      <<: *second_base
+      target_neighbor_counts: [17, 67]
+
+  - model_name: first3_second3_s_n17_n67
+    target:
+      <<: *first_second_base
+      target_neighbor_counts: [17, 67]
+
+  - model_name: first3_s_n17_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 133]
+
+  - model_name: second3_s_n17_n133
+    target:
+      <<: *second_base
+      target_neighbor_counts: [17, 133]
+
+  - model_name: first3_second3_s_n17_n133
+    target:
+      <<: *first_second_base
+      target_neighbor_counts: [17, 133]
+
+  - model_name: first3_s_n67_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67, 133]
+
+  - model_name: second3_s_n67_n133
+    target:
+      <<: *second_base
+      target_neighbor_counts: [67, 133]
+
+  - model_name: first3_second3_s_n67_n133
+    target:
+      <<: *first_second_base
+      target_neighbor_counts: [67, 133]
+
+  # Full three-scale set.  Its comparison with n17 and the two n17 pairs is the
+  # primary test of genuine multi-scale complementarity.
+  - model_name: first3_s_n17_n67_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+
+  - model_name: second3_s_n17_n67_n133
+    target:
+      <<: *second_base
+      target_neighbor_counts: [17, 67, 133]
+
+  - model_name: first3_second3_s_n17_n67_n133
+    target:
+      <<: *first_second_base
+      target_neighbor_counts: [17, 67, 133]
+
+  # Baselines use exactly the same KMeans initialization protocol as before.
+  - model_name: em_kmeans_reg1e6
+    target:
+      <<: *sklearn_gmm_kmeans
+
+  - model_name: em_kmeans_reg1e2
+    target:
+      <<: *sklearn_gmm_kmeans
+      reg_covar: 1.0e-2
+
+  - model_name: kmeans_spherical
+    target:
+      <<: *sklearn_kmeans
+
+datasets:
+  - name: balanced_d10_n200_hard_varspread3
+    target:
+      _target_: experiments.synthetic_data.gaussian.GaussianDatasetGenerator
+      n_features: 10
+      n_components: 3
+      n_samples: 200
+      covariance_type: spherical
+      variance_spread: 3.0
+      anisotropy: 1.0
+      means_mode: fixed
+      weights_concentration: 1.0e6
+      min_mahalanobis_distance: 2.0

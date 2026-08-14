@@ -1,0 +1,212 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_uniform_background_equal_budget_confirmation
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+# Confirmatory equal-budget experiment for diffuse uniform contamination.
+# Every moment model constructs exactly the same test functions:
+#
+#   1 zero-order + 10 first-order + 10 second-order probes per data center,
+#   at target neighbor counts [17, 133].
+#
+# Counts remain fixed even when a family's loss weight is zero.  Thus, for a
+# fixed dataset_seed/model_seed, all moment rows share identical KMeans
+# initialization, centers, bandwidths, first directions, and second directions,
+# and execute the same moment computations.  Only objective weights differ.
+# This separates the statistical value of each family from probe count and
+# Monte Carlo direction noise.
+#
+# Dataset seeds 101--160 are new relative to the exploratory run (1--20).
+# Raw paired metrics retain dataset_seed and model_seed for paired bootstrap or
+# hierarchical analysis; the 3 model seeds on one dataset are not independent
+# dataset replicates.
+#
+# 4 datasets x 60 dataset seeds x 3 model seeds x 12 models = 8,640 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 60
+  dataset_seed_start: 101
+  model_seeds_per_dataset: 3
+  save_raw_results: true
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+# Forward KL and parameter errors target the uncontaminated Gaussian core.
+# ARI excludes background points through evaluation_mask, but all estimators
+# are fitted to the complete contaminated sample.
+metrics:
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.RelativeLossDrop
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+  - _target_: experiments.metrics.MinimumSelectedBandwidth
+  - _target_: experiments.metrics.MaximumSelectedBandwidth
+  - _target_: experiments.metrics.MinimumEstimatedWeight
+  - _target_: experiments.metrics.EstimatedVarianceRatio
+
+moment_equal_budget: &moment_equal_budget
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: [17, 133]
+  n_zero_moments: 1
+  n_first_moments: 10
+  n_second_moments: 10
+  second_moment_mode: same_direction
+  zero_moment_weight: 0.0
+  first_moment_weight: 0.0
+  second_moment_weight: 1.0
+  normalize_moment_losses: true
+  scale_normalize_moments: true
+  leave_one_out: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1.0e-4
+
+models:
+  # Weight-path from pure second order to equal family weights.  Because both
+  # active families have ten probes, w1/w2 is also their relative per-probe
+  # weight.  The values 1/16 and 1/8 cover the strongest mixed configurations
+  # from the exploratory run.
+  - model_name: equal_budget_w0_0_w1_0_w2_1
+    target:
+      <<: *moment_equal_budget
+
+  - model_name: equal_budget_w0_0_w1_003125_w2_1
+    target:
+      <<: *moment_equal_budget
+      first_moment_weight: 0.03125
+
+  - model_name: equal_budget_w0_0_w1_00625_w2_1
+    target:
+      <<: *moment_equal_budget
+      first_moment_weight: 0.0625
+
+  - model_name: equal_budget_w0_0_w1_0125_w2_1
+    target:
+      <<: *moment_equal_budget
+      first_moment_weight: 0.125
+
+  - model_name: equal_budget_w0_0_w1_025_w2_1
+    target:
+      <<: *moment_equal_budget
+      first_moment_weight: 0.25
+
+  - model_name: equal_budget_w0_0_w1_05_w2_1
+    target:
+      <<: *moment_equal_budget
+      first_moment_weight: 0.5
+
+  - model_name: equal_budget_w0_0_w1_1_w2_1
+    target:
+      <<: *moment_equal_budget
+      first_moment_weight: 1.0
+
+  # Pure-first endpoint.  The ten second-order probes are still constructed and
+  # evaluated with zero loss weight, exactly as first probes are in pure-second.
+  - model_name: equal_budget_w0_0_w1_1_w2_0
+    target:
+      <<: *moment_equal_budget
+      first_moment_weight: 1.0
+      second_moment_weight: 0.0
+
+  # Direct check that the weak zero-order family, rather than first order, is
+  # responsible for part of the degradation seen in all-orders models.
+  - model_name: equal_budget_w0_00625_w1_0_w2_1
+    target:
+      <<: *moment_equal_budget
+      zero_moment_weight: 0.0625
+
+  # Likelihood and initialization-only reference methods.  Their algorithmic
+  # budgets cannot be equated by probe count and are interpreted as baselines,
+  # not as members of the equal-budget moment ablation.
+  - model_name: em_kmeans_reg1e6
+    target:
+      <<: *sklearn_gmm_kmeans
+
+  - model_name: em_kmeans_reg1e2
+    target:
+      <<: *sklearn_gmm_kmeans
+      reg_covar: 1.0e-2
+
+  - model_name: kmeans_spherical
+    target:
+      <<: *sklearn_kmeans
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.uniform_background.UniformBackgroundDatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 200
+  covariance_type: spherical
+  variance_spread: 3.0
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 1000000.0
+  min_mahalanobis_distance: 2.0
+  box_padding: 4.0
+
+datasets:
+  - name: uniform_eps000_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.0
+
+  - name: uniform_eps002_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.02
+
+  - name: uniform_eps005_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.05
+
+  - name: uniform_eps010_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.10

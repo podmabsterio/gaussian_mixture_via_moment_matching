@@ -1,0 +1,327 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_uniform_background_loo_ablation
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 2
+
+# Exploratory dose-response experiment for diffuse uniform contamination.
+# The four datasets share the same clean spherical GMM and box geometry; only
+# the replacement fraction changes.  This keeps contamination severity
+# interpretable and includes eps=0 as an exact clean calibration.
+#
+# The moment shortlist is organized into explicit ablations rather than one
+# large factorial:
+#   1. every non-empty subset of target counts {17, 67, 133}, plus auto;
+#   2. every non-empty subset of the implemented orders {0, 1, 2};
+#   3. selected zero/second-family weights;
+#   4. density filtering, stabilization, and D2=3 cost controls.
+# All moment families remain generated when their loss weight is zero, so the
+# random probes are nested across order and weight comparisons for a fixed seed.
+#
+# 4 datasets x 20 dataset seeds x 2 model seeds x 32 models = 5,120 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 20
+  model_seeds_per_dataset: 2
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+# Forward KL and parameter errors target the uncontaminated Gaussian core.
+# ARI is evaluated only on clean observations via evaluation_mask, while every
+# estimator is fitted to the complete contaminated sample.  The final two
+# parameter diagnostics expose component stealing.  Bandwidth diagnostics are
+# NaN for sklearn models, which do not select kernel bandwidths.
+metrics:
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.RelativeLossDrop
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+  - _target_: experiments.metrics.MinimumSelectedBandwidth
+  - _target_: experiments.metrics.MaximumSelectedBandwidth
+  - _target_: experiments.metrics.MinimumEstimatedWeight
+  - _target_: experiments.metrics.EstimatedVarianceRatio
+
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: [17, 133]
+  n_zero_moments: 1
+  n_first_moments: 3
+  n_second_moments: 10
+  second_moment_mode: same_direction
+  zero_moment_weight: 0.0625
+  first_moment_weight: 1.0
+  second_moment_weight: 8.0
+  normalize_moment_losses: true
+  scale_normalize_moments: true
+  leave_one_out: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1.0e-4
+
+models:
+  # ------------------------------------------------------------------------
+  # Bandwidth target ablation.  This is the complete non-empty power set of
+  # {17, 67, 133}; auto is approximately {33, 47, 66} for n=200, K=3.
+  # ------------------------------------------------------------------------
+  - model_name: bandwidth_t17
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17]
+
+  - model_name: bandwidth_t67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+
+  - model_name: bandwidth_t133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [133]
+
+  - model_name: bandwidth_t17_t67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67]
+
+  - model_name: bandwidth_t17_t133
+    target: &reference_all
+      <<: *moment_base
+
+  - model_name: bandwidth_t67_t133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67, 133]
+
+  - model_name: bandwidth_t17_t67_t133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+
+  - model_name: bandwidth_auto
+    target:
+      <<: *moment_base
+      target_neighbor_counts: auto
+
+  # ------------------------------------------------------------------------
+  # Moment-family ablation at the reference targets [17, 133].  Counts stay
+  # enabled and only loss weights change, preserving identical random probes.
+  # The reference all-orders model is bandwidth_t17_t133 above.
+  # ------------------------------------------------------------------------
+  - model_name: orders_0
+    target:
+      <<: *reference_all
+      zero_moment_weight: 1.0
+      first_moment_weight: 0.0
+      second_moment_weight: 0.0
+
+  - model_name: orders_1
+    target:
+      <<: *reference_all
+      zero_moment_weight: 0.0
+      second_moment_weight: 0.0
+
+  - model_name: orders_2
+    target:
+      <<: *reference_all
+      zero_moment_weight: 0.0
+      first_moment_weight: 0.0
+      second_moment_weight: 1.0
+
+  - model_name: orders_01
+    target:
+      <<: *reference_all
+      second_moment_weight: 0.0
+
+  - model_name: orders_02
+    target:
+      <<: *reference_all
+      first_moment_weight: 0.0
+
+  - model_name: orders_12
+    target: &reference_no_zero
+      <<: *reference_all
+      zero_moment_weight: 0.0
+
+  # ------------------------------------------------------------------------
+  # Focused family-weight refinement.  w2=8 for both w0 choices is already
+  # represented by bandwidth_t17_t133 and orders_12.
+  # ------------------------------------------------------------------------
+  - model_name: weights_w0_00625_w1_1_w2_4
+    target:
+      <<: *reference_all
+      second_moment_weight: 4.0
+
+  - model_name: weights_w0_00625_w1_1_w2_16
+    target:
+      <<: *reference_all
+      second_moment_weight: 16.0
+
+  - model_name: weights_w0_0_w1_1_w2_4
+    target:
+      <<: *reference_no_zero
+      second_moment_weight: 4.0
+
+  - model_name: weights_w0_0_w1_1_w2_16
+    target:
+      <<: *reference_no_zero
+      second_moment_weight: 16.0
+
+  - model_name: weights_w0_025_w1_1_w2_8
+    target:
+      <<: *reference_all
+      zero_moment_weight: 0.25
+
+  # ------------------------------------------------------------------------
+  # Density filtering.  Bandwidths are selected on all observations before
+  # filtering, so these cells isolate which points are used as test centers.
+  # Fractions 0.95 and 0.90 remove 10 and 20 centers at n=200.
+  # ------------------------------------------------------------------------
+  - model_name: centers_f095_all
+    target:
+      <<: *reference_all
+      test_center_fraction: 0.95
+
+  - model_name: centers_f090_all
+    target:
+      <<: *reference_all
+      test_center_fraction: 0.90
+
+  - model_name: centers_f095_no_zero
+    target:
+      <<: *reference_no_zero
+      test_center_fraction: 0.95
+
+  - model_name: centers_f090_no_zero
+    target:
+      <<: *reference_no_zero
+      test_center_fraction: 0.90
+
+  # ------------------------------------------------------------------------
+  # Stabilization diagnostics.  These determine whether robustness comes from
+  # localized moments themselves or from anchoring around KMeans.
+  # ------------------------------------------------------------------------
+  - model_name: stabilize_penalty_1e4
+    target:
+      <<: *reference_all
+      mean_penalty_weight: 1.0e-4
+
+  - model_name: stabilize_penalty_1e3
+    target:
+      <<: *reference_all
+      mean_penalty_weight: 1.0e-3
+
+  - model_name: stabilize_near
+    target:
+      <<: *reference_all
+      r_tests_near_means: 1.0
+
+  - model_name: stabilize_near_penalty_1e3
+    target:
+      <<: *reference_all
+      r_tests_near_means: 1.0
+      mean_penalty_weight: 1.0e-3
+
+  # D2=3 controls show whether contamination changes the clean-data conclusion
+  # that ten second-order directions are enough but not always necessary.
+  - model_name: directions_d2_3_all
+    target:
+      <<: *reference_all
+      n_second_moments: 3
+
+  - model_name: directions_d2_3_no_zero
+    target:
+      <<: *reference_no_zero
+      n_second_moments: 3
+
+  # Likelihood and initialization-only controls.
+  - model_name: em_kmeans_reg1e6
+    target:
+      <<: *sklearn_gmm_kmeans
+
+  - model_name: em_kmeans_reg1e2
+    target:
+      <<: *sklearn_gmm_kmeans
+      reg_covar: 1.0e-2
+
+  - model_name: kmeans_spherical
+    target:
+      <<: *sklearn_kmeans
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.uniform_background.UniformBackgroundDatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 200
+  covariance_type: spherical
+  variance_spread: 3.0
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 1000000.0
+  min_mahalanobis_distance: 2.0
+  box_padding: 4.0
+
+datasets:
+  - name: uniform_eps000_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.0
+
+  - name: uniform_eps002_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.02
+
+  - name: uniform_eps005_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.05
+
+  - name: uniform_eps010_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.10

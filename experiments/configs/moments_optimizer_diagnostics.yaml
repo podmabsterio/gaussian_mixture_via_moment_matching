@@ -1,0 +1,194 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_optimizer_diagnostics
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+# Targeted optimizer study for the two moment objectives that matter in the
+# current article experiments:
+#
+#   pure M2       -- strongest at 5% diffuse uniform contamination;
+#   M2 + 1/4 M1  -- strongest mixed point on clean data.
+#
+# Every moment row constructs the same 1 + 10 + 10 probes at the same two
+# bandwidths. For a fixed dataset/model seed, initialization, centers,
+# directions, empirical responses, and objective are identical across the
+# three geometry algorithms. Only the optimizer path changes.
+#
+# Hypotheses:
+# H1: component descent stops away from joint stationarity. The direct test is
+#     component_joint_polish, which starts its joint sweeps at the exact final
+#     component solution.
+# H2: the current outer/inner budgets stop too early. The pure-M2 strict-budget
+#     cell increases max_steps, least-squares evaluations, patience, and
+#     tightens objective_rtol without changing the update structure.
+# H3: lower moment loss need not improve distribution recovery. Final gradient
+#     and loss are therefore interpreted together with KL, parameter errors,
+#     and ARI.
+# H4: the numerical conclusion may depend on the active moment families, hence
+#     the symmetric pure-M2 and mixed-M1 comparisons.
+#
+# 2 datasets x 20 dataset seeds x 2 model seeds x 8 models = 640 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 20
+  dataset_seed_start: 301
+  model_seeds_per_dataset: 2
+  save_raw_results: true
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+metrics:
+  # Objective and numerical convergence diagnostics.
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.TrueRelativeObjectiveDrop
+  - _target_: experiments.metrics.OptimizationOuterIterations
+  - _target_: experiments.metrics.OptimizationConverged
+  - _target_: experiments.metrics.GeometryFunctionEvaluations
+  - _target_: experiments.metrics.GeometryMaxEvaluationsRate
+  - _target_: experiments.metrics.GeometryEtaBoundHitRate
+  - _target_: experiments.metrics.GeometryAcceptanceRate
+  - _target_: experiments.metrics.FinalMeanGradientInfinityNorm
+  - _target_: experiments.metrics.FinalLogVarianceGradientInfinityNorm
+  - _target_: experiments.metrics.JointPolishRelativeGain
+
+  # Statistical quality and failure-mode diagnostics.
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+  - _target_: experiments.metrics.MinimumEstimatedWeight
+  - _target_: experiments.metrics.EstimatedVarianceRatio
+
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: [17, 133]
+  n_zero_moments: 1
+  n_first_moments: 10
+  n_second_moments: 10
+  second_moment_mode: same_direction
+  zero_moment_weight: 0.0
+  first_moment_weight: 0.0
+  second_moment_weight: 1.0
+  normalize_moment_losses: true
+  scale_normalize_moments: true
+  leave_one_out: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+  joint_polish_sweeps: 0
+  joint_polish_max_nfev: null
+
+component_joint_polish: &component_joint_polish
+  <<: *moment_base
+  joint_polish_sweeps: 3
+  joint_polish_max_nfev: 100
+
+joint_from_start: &joint_from_start
+  <<: *moment_base
+  geometry_optimization: joint
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-2
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+models:
+  # Pure second-order objective.
+  - model_name: m2_component_current
+    target:
+      <<: *moment_base
+
+  - model_name: m2_component_joint_polish
+    target:
+      <<: *component_joint_polish
+
+  - model_name: m2_joint_from_start
+    target:
+      <<: *joint_from_start
+
+  - model_name: m2_component_strict_budget
+    target:
+      <<: *moment_base
+      objective_rtol: 1.0e-7
+      convergence_patience: 5
+      max_steps: 300
+      ls_max_nfev: 100
+
+  # Mixed objective. Counts remain unchanged, so second-order directions are
+  # paired exactly with the pure-M2 cells for every dataset/model seed.
+  - model_name: m2_m1q_component_current
+    target:
+      <<: *moment_base
+      first_moment_weight: 0.25
+
+  - model_name: m2_m1q_component_joint_polish
+    target:
+      <<: *component_joint_polish
+      first_moment_weight: 0.25
+
+  - model_name: m2_m1q_joint_from_start
+    target:
+      <<: *joint_from_start
+      first_moment_weight: 0.25
+
+  # One external calibration point is enough here: the experiment is about
+  # optimization within a fixed moment objective, not another EM comparison.
+  - model_name: em_kmeans_reg1e2
+    target:
+      <<: *sklearn_gmm_kmeans
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.uniform_background.UniformBackgroundDatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 200
+  covariance_type: spherical
+  variance_spread: 3.0
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 1000000.0
+  min_mahalanobis_distance: 2.0
+  box_padding: 4.0
+
+datasets:
+  - name: optimizer_clean_d10_n200_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.0
+
+  - name: optimizer_uniform_eps005_d10_n200_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.05

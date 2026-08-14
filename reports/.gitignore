@@ -1,0 +1,7 @@
+# Report directories may contain many TeX build artifacts. Keep only source
+# documents and final PDFs under version control.
+*
+!*/
+!*.tex
+!*.pdf
+!.gitignore

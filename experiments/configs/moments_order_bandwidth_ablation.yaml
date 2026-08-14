@@ -1,0 +1,568 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_order_bandwidth_ablation
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+# Kept false here so this original experiment remains exactly reproducible.
+# The LOO copy overrides it to true for every moment model below.
+leave_one_out: false
+
+# Exploratory experiment for separating three effects:
+#   1. which moment orders carry useful information;
+#   2. how local the Gaussian test functions should be;
+#   3. how first- and second-order family weights interact with bandwidth.
+#
+# Heavy tails, contamination, density filtering, near-mean probes, and mean
+# penalties are deliberately excluded. All datasets are clean spherical GMMs
+# with the same K, d, n, separation, and almost exactly equal weights. Only the
+# component variance spread changes.
+#
+# 3 datasets x 20 dataset draws x 2 model seeds x 56 models = 6,720 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 20
+  model_seeds_per_dataset: 2
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+# Final loss and relative loss drop are optimization diagnostics only. Their
+# absolute values must not be compared between different moment compositions
+# or family weights.
+metrics:
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.RelativeLossDrop
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: [67]
+  n_zero_moments: 1
+  n_first_moments: 3
+  n_second_moments: 3
+  second_moment_mode: same_direction
+  zero_moment_weight: 1.0
+  first_moment_weight: 1.0
+  second_moment_weight: 1.0
+  normalize_moment_losses: true
+  # Make every order dimensionless before applying the family weights:
+  # omega_0, omega_1 / s, and omega_2 / s^2.
+  scale_normalize_moments: true
+  leave_one_out: ${leave_one_out}
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1.0e-4
+
+models:
+  # ------------------------------------------------------------------------
+  # Moment-composition factorial at four single bandwidths and one deliberately
+  # wide multi-bandwidth set. Counts 17, 33, 67, and 133 approximate
+  # n/(4K), n/(2K), n/K, and 2n/K for n=200, K=3.
+  #
+  # First- and second-order families use three random directions per center to
+  # reduce direction Monte Carlo noise. Zero-order rows have no direction, so
+  # duplicating them would add identical equations and is intentionally avoided.
+  # ------------------------------------------------------------------------
+
+  # Very local bandwidth: target soft-neighbor count 17.
+  - model_name: order_zero_s_n17
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 0
+
+  - model_name: order_first3_s_n17
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_second3_s_n17
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17]
+      n_zero_moments: 0
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_zero_first3_s_n17
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17]
+      n_zero_moments: 1
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_zero_second3_s_n17
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_first3_second3_s_n17
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 3
+
+  - model_name: order_all_s_n17
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17]
+
+  # Local-to-medium bandwidth: target soft-neighbor count 33.
+  - model_name: order_zero_s_n33
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [33]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 0
+
+  - model_name: order_first3_s_n33
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [33]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_second3_s_n33
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [33]
+      n_zero_moments: 0
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_zero_first3_s_n33
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [33]
+      n_zero_moments: 1
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_zero_second3_s_n33
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [33]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_first3_second3_s_n33
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [33]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 3
+
+  - model_name: order_all_s_n33
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [33]
+
+  # Component-scale bandwidth: target soft-neighbor count 67 ~= n/K.
+  - model_name: order_zero_s_n67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 0
+
+  - model_name: order_first3_s_n67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_second3_s_n67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      n_zero_moments: 0
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_zero_first3_s_n67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      n_zero_moments: 1
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_zero_second3_s_n67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_first3_second3_s_n67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 3
+
+  - model_name: order_all_s_n67
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+
+  # Broad bandwidth: target soft-neighbor count 133 ~= 2n/K.
+  - model_name: order_zero_s_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [133]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 0
+
+  - model_name: order_first3_s_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [133]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_second3_s_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [133]
+      n_zero_moments: 0
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_zero_first3_s_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [133]
+      n_zero_moments: 1
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_zero_second3_s_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [133]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_first3_second3_s_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [133]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 3
+
+  - model_name: order_all_s_n133
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [133]
+
+  # Wide multi-scale set: jointly fit local, component-scale, and broad views.
+  - model_name: order_zero_s_wide
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 0
+
+  - model_name: order_first3_s_wide
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_second3_s_wide
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      n_zero_moments: 0
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_zero_first3_s_wide
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      n_zero_moments: 1
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_zero_second3_s_wide
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      n_zero_moments: 1
+      n_first_moments: 0
+      n_second_moments: 3
+
+  - model_name: order_first3_second3_s_wide
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 3
+
+  - model_name: order_all_s_wide
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+
+  # Current automatic bandwidth selection controls. They are not expanded into
+  # a full factorial because their three targets are close to the n33--n67 range.
+  - model_name: order_first3_s_auto
+    target:
+      <<: *moment_base
+      target_neighbor_counts: auto
+      n_zero_moments: 0
+      n_first_moments: 3
+      n_second_moments: 0
+
+  - model_name: order_all_s_auto
+    target:
+      <<: *moment_base
+      target_neighbor_counts: auto
+
+  # ------------------------------------------------------------------------
+  # Weight factorial for all moment orders. Zero-order weight is the reference
+  # and stays at one. Since there is no mean penalty, multiplying all family
+  # weights by one common constant does not change the optimizer; varying w0 as
+  # well would therefore only duplicate ratios already represented below.
+  #
+  # The (w1=1, w2=1) cells already exist as order_all_s_n67 and
+  # order_all_s_wide and are not duplicated.
+  # ------------------------------------------------------------------------
+
+  # Since scale normalization removes the deterministic powers of s, both w1
+  # and w2 use the same symmetric logarithmic grid {0.25, 1, 4}.
+
+  # Weight grid at one component-scale bandwidth.
+  - model_name: weights_s_n67_w1_025_w2_025
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      first_moment_weight: 0.25
+      second_moment_weight: 0.25
+
+  - model_name: weights_s_n67_w1_025_w2_1
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      first_moment_weight: 0.25
+      second_moment_weight: 1.0
+
+  - model_name: weights_s_n67_w1_025_w2_4
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      first_moment_weight: 0.25
+      second_moment_weight: 4.0
+
+  - model_name: weights_s_n67_w1_1_w2_025
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      first_moment_weight: 1.0
+      second_moment_weight: 0.25
+
+  - model_name: weights_s_n67_w1_1_w2_4
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      first_moment_weight: 1.0
+      second_moment_weight: 4.0
+
+  - model_name: weights_s_n67_w1_4_w2_025
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      first_moment_weight: 4.0
+      second_moment_weight: 0.25
+
+  - model_name: weights_s_n67_w1_4_w2_1
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      first_moment_weight: 4.0
+      second_moment_weight: 1.0
+
+  - model_name: weights_s_n67_w1_4_w2_4
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [67]
+      first_moment_weight: 4.0
+      second_moment_weight: 4.0
+
+  # The same weight grid for the wide multi-scale bandwidth set.
+  - model_name: weights_s_wide_w1_025_w2_025
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      first_moment_weight: 0.25
+      second_moment_weight: 0.25
+
+  - model_name: weights_s_wide_w1_025_w2_1
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      first_moment_weight: 0.25
+      second_moment_weight: 1.0
+
+  - model_name: weights_s_wide_w1_025_w2_4
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      first_moment_weight: 0.25
+      second_moment_weight: 4.0
+
+  - model_name: weights_s_wide_w1_1_w2_025
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      first_moment_weight: 1.0
+      second_moment_weight: 0.25
+
+  - model_name: weights_s_wide_w1_1_w2_4
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      first_moment_weight: 1.0
+      second_moment_weight: 4.0
+
+  - model_name: weights_s_wide_w1_4_w2_025
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      first_moment_weight: 4.0
+      second_moment_weight: 0.25
+
+  - model_name: weights_s_wide_w1_4_w2_1
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      first_moment_weight: 4.0
+      second_moment_weight: 1.0
+
+  - model_name: weights_s_wide_w1_4_w2_4
+    target:
+      <<: *moment_base
+      target_neighbor_counts: [17, 67, 133]
+      first_moment_weight: 4.0
+      second_moment_weight: 4.0
+
+  # Likelihood and initialization controls.
+  - model_name: em_kmeans_reg1e6
+    target:
+      <<: *sklearn_gmm_kmeans
+
+  - model_name: em_kmeans_reg1e2
+    target:
+      <<: *sklearn_gmm_kmeans
+      reg_covar: 1.0e-2
+
+  - model_name: kmeans_spherical
+    target:
+      <<: *sklearn_kmeans
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.gaussian.GaussianDatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 200
+  covariance_type: spherical
+  variance_spread: 1.2
+  anisotropy: 1.0
+  means_mode: fixed
+  # The generator currently samples Dirichlet weights rather than accepting a
+  # fixed vector. A very high concentration makes them effectively (1/3,1/3,1/3)
+  # while keeping this experiment config-only.
+  weights_concentration: 1.0e6
+  min_mahalanobis_distance: 2.0
+
+datasets:
+  - name: balanced_d10_n200_hard_varspread1
+    target:
+      <<: *dataset_base
+      variance_spread: 1.0
+
+  - name: balanced_d10_n200_hard_varspread1p2
+    target:
+      <<: *dataset_base
+      variance_spread: 1.2
+
+  - name: balanced_d10_n200_hard_varspread6
+    target:
+      <<: *dataset_base
+      variance_spread: 6.0

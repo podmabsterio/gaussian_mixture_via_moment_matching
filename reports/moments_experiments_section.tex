@@ -1,0 +1,880 @@
+\documentclass[11pt,a4paper]{article}
+
+% This file is standalone for convenient review.  The content beginning at
+% \section{Experimental evaluation} can be inserted directly after Section 3
+% of problem_statement.pdf.
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{lmodern}
+
+\usepackage[a4paper,margin=25mm]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{placeins}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{xurl}
+\usepackage{hyperref}
+
+\definecolor{navy}{HTML}{183153}
+\definecolor{blue}{HTML}{2B6CB0}
+\definecolor{lightblue}{HTML}{EDF5FC}
+\definecolor{lightgray}{HTML}{F3F4F6}
+\definecolor{midgray}{HTML}{697386}
+\definecolor{green}{HTML}{287A55}
+\definecolor{red}{HTML}{A43D3D}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=navy,
+  urlcolor=blue,
+  citecolor=green,
+  pdfauthor={GMM research project},
+  pdftitle={Experimental evaluation of localized moments for Gaussian mixtures},
+  pdfsubject={Clean, contaminated, and heavy-tailed mixture estimation}
+}
+
+\pagestyle{plain}
+
+\titleformat{\section}
+  {\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\large\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+  {\normalsize\bfseries}{\thesubsubsection}{1em}{}
+\titlespacing*{\section}{0pt}{1.30em}{0.55em}
+\titlespacing*{\subsection}{0pt}{0.95em}{0.35em}
+\titlespacing*{\subsubsection}{0pt}{0.70em}{0.25em}
+
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4.0pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.35em}
+\emergencystretch=2em
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{R}{>{\raggedleft\arraybackslash}X}
+\newcommand{\best}[1]{\textbf{#1}}
+\newcommand{\bad}[1]{\textcolor{red}{#1}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\KL}{\mathrm{KL}}
+\newcommand{\ARI}{\mathrm{ARI}}
+\newcommand{\Mzero}{M_0}
+\newcommand{\Mone}{M_1}
+\newcommand{\Mtwo}{M_2}
+\newcommand{\Rtwo}{R_2}
+\newcommand{\EM}{\mathrm{EM}}
+
+\begin{document}
+\setcounter{section}{3}
+\setcounter{page}{12}
+
+\section{Experimental evaluation}
+\label{sec:experiments}
+
+We evaluate whether localized moment matching can recover a spherical
+Gaussian mixture under correct specification and under several forms of
+model misspecification.  The experiments are organized around three
+questions.  First, which moment families are informative when the Gaussian
+model is correct?  Second, does the local criterion remain useful when a
+small fraction of observations does not belong to any component?  Third,
+which parts of the result are specific to uniform background noise, and which
+extend to global heavy tails?  We also isolate the effects of radial moments
+and alternative variance-update schemes.  Unless stated otherwise, all
+reported errors are computed after optimal permutation of the components.
+
+\subsection{Experimental protocol}
+\label{sec:exp_protocol}
+
+\subsubsection{Data-generating processes}
+
+The core problem has $K=3$ balanced spherical components in dimension
+$d=10$ and $n=200$ observations.  Component means are generated with a
+minimum pairwise Mahalanobis separation of $2$, producing deliberately
+overlapping clusters.  The default ratio between the largest and smallest
+component variance is $3$.  Table~\ref{tab:datasets} summarizes the data
+regimes.  Each dataset seed defines the mixture parameters and observations;
+model seeds change only randomized directions and optimization details.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Data regimes used in the experiments.  The target distribution for
+evaluation is always the uncontaminated Gaussian mixture.}
+\label{tab:datasets}
+\begin{tabularx}{\linewidth}{@{}l l Y Y@{}}
+\toprule
+Regime & Grid & Construction & Purpose \\
+\midrule
+Clean Gaussian
+  & variance ratio $1,1.2,3,6$
+  & Samples from the target spherical GMM.
+  & Calibration under correct specification. \\
+Uniform background
+  & $\varepsilon=0,2,5,10\%$
+  & Replace an $\varepsilon$ fraction by a uniform draw from the bounding box
+    of the mixture, enlarged by padding $4$.
+  & Localized contamination and negative-space information. \\
+Student-$t$
+  & $\nu=10,5,3$
+  & Replace every Gaussian component by a moment-matched spherical
+    Student-$t_\nu$ component; labels and covariance targets are retained.
+  & Symmetric global heavy tails. \\
+Directional Gamma
+  & 12 settings
+  & Skewed component-wise perturbations with random, outward, or inward
+    directions; $n\in\{200,500\}$ and two separations.
+  & Asymmetric misspecification and a negative control. \\
+Dimension scaling
+  & $d=2,10,50,100,500$
+  & Clean and $5\%$ uniform data with
+    $n(d)=\max(200,20d)$ and a fixed test-function budget.
+  & Statistical and computational scaling. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The clean calibration uses 20--30 independent datasets and two model seeds.
+The main uniform-contamination and Student-$t$ experiments use 60 independent
+datasets and three model seeds.  Smaller mechanistic and optimizer ablations
+use 20--40 datasets and two or three model seeds.  The dimension screen uses
+20 datasets and one model seed in each cell.  Exact sample sizes are given
+with the corresponding tables.
+
+\subsubsection{Moment models}
+
+For each center $c$, bandwidth $s$, and unit direction $u$, the models combine
+the normalized zeroth-, first-, and directional second-order tests introduced
+in Section~3,
+\[
+  \Mzero=K_s(x-c),\qquad
+  \Mone=\frac{\langle x-c,u\rangle}{s}K_s(x-c),\qquad
+  \Mtwo=\frac{\langle x-c,u\rangle^2}{s^2}K_s(x-c).
+\]
+We use all observations as centers and leave the center itself out when
+forming its empirical response and local neighbor count.  This leave-one-out
+construction removes the self-interaction bias caused by data-centered test
+functions.  The default bandwidths contain approximately 17 and 133
+neighbors.  Ten random directions are generated for both $\Mone$ and
+$\Mtwo$.  All configurations build the same $1+10+10$ test stream per
+center and bandwidth; a family is disabled by assigning zero loss weight.
+Thus, differences between moment configurations do not arise from different
+random features or computational budgets.
+
+The notation $\Mtwo$ below means ten directional second moments at both
+bandwidths.  For example, $\Mtwo+0.25\Mone$ assigns unit weight to the
+second-order block and weight $0.25$ to the first-order block.  The radial
+second moment is
+\[
+ \Rtwo(x;c,s)=\frac{\|x-c\|^2}{d s^2}K_s(x-c),
+\]
+with one radial test replacing the directional second-order block.  Its
+compensated version subtracts the multiple of $\Mzero$ derived in Section~3
+so that the test integrates to zero over $\mathbb R^d$.  Division by $d$ and
+$s^2$ puts radial and directional responses on comparable scales.
+
+\subsubsection{Baselines, optimization, and metrics}
+
+The baselines are spherical EM, initialized by KMeans and fitted with
+$\texttt{reg\_covar}\in\{10^{-6},10^{-2}\}$, and KMeans itself.  The moment
+estimator uses the same KMeans initialization.  Mixture weights are solved on
+the simplex.  Geometry is then updated component by component: with all other
+components fixed, the component mean and log-variance are optimized jointly
+by a bounded trust-region least-squares step.  Mean displacement is restricted
+relative to the current component scale by a step bound of $0.75$; a local step is accepted only if it
+does not increase the moment loss.  Weight and geometry sweeps alternate for
+at most 150 outer iterations, with relative tolerance $10^{-5}$ and patience
+three.  Section~\ref{sec:optimizer_ablation} tests both stricter stopping and
+two explicitly separated mean/variance updates.
+
+We report forward $\KL(P^*\|P_{\hat\theta})$ from the clean target GMM to the
+estimate, total variation error of the mixture weights, mean error normalized
+by the target scale, affine-invariant covariance error, and adjusted Rand
+index (ARI).  Under contamination, parameter errors and KL refer to the clean
+target, while ARI is evaluated only on genuine observations.  Lower is better
+for all errors and higher is better for ARI.
+
+In main tables, an entry is the mean with the standard deviation in
+parentheses.  We first average model seeds within each dataset, then summarize
+over independent dataset seeds; the experimental unit is therefore the
+dataset, not an optimizer restart.  Calibration tables for which only the
+original aggregate output was retained summarize all completed fits.  Paired
+differences use dataset-level percentile bootstrap 95\% confidence intervals
+(CI).  No multiplicity correction is applied, so fine-grained weight searches
+are interpreted as exploratory rather than as confirmatory hypothesis tests.
+
+\subsection{Calibration under the Gaussian model}
+\label{sec:clean_calibration}
+
+The leave-one-out correction is consequential in the nearly homoscedastic
+regime: for the wide-bandwidth $\Mzero+3\Mone$ model it reduces mean KL from
+$0.100$ to $0.087$ at variance ratio $1$, and from $0.101$ to $0.088$ at ratio
+$1.2$.  We therefore use leave-one-out responses in every subsequent
+experiment.
+
+Table~\ref{tab:clean} compares the best calibrated moment model with EM and
+KMeans.  Local moments are best when component variances are nearly equal.
+At the default variance ratio $3$, $\Mtwo+0.25\Mone$ is essentially tied with
+EM: it has slightly larger KL and covariance error, but smaller weight error
+and slightly larger ARI.  At ratio $6$, EM is clearly preferable.  Thus, the
+clean-data result is not a uniform dominance claim; it identifies where the
+localized criterion pays little or no efficiency penalty.
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Clean Gaussian data.  Ratios $1$, $1.2$, and $6$ use mean (SD) over
+20 dataset seeds and two model seeds; ratio $3$ uses 60 datasets after
+averaging three model seeds.  Bold denotes the better estimator in each pair.}
+\label{tab:clean}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}c l c c c c c@{}}
+\toprule
+Variance ratio & Estimator & KL $\downarrow$ & Weight TV $\downarrow$
+  & Mean error $\downarrow$ & Covariance $\downarrow$ & ARI $\uparrow$ \\
+\midrule
+\multirow{2}{*}{$1.0$}
+ & $\Mzero+3\Mone$, $s(133)$ & \best{.0867 (.0281)} & \best{.0536 (.0311)}
+ & \best{.1846 (.0398)} & \best{.0511 (.0274)} & \best{.3263 (.0726)} \\
+ & EM, $10^{-2}$ & .1076 (.0382) & .1329 (.0783) & .2245 (.0657)
+ & .1122 (.0640) & .2894 (.0822) \\
+\addlinespace
+\multirow{2}{*}{$1.2$}
+ & $\Mzero+3\Mone$, $s(133)$ & \best{.0883 (.0244)} & \best{.0491 (.0232)}
+ & \best{.1812 (.0383)} & \best{.0589 (.0244)} & \best{.3548 (.0563)} \\
+ & EM, $10^{-2}$ & .1079 (.0355) & .1356 (.0756) & .2166 (.0590)
+ & .1204 (.0633) & .2985 (.0763) \\
+\addlinespace
+\multirow{2}{*}{$3.0$}
+ & $\Mtwo+0.25\Mone$ & .1049 (.0269) & \best{.0590 (.0243)}
+ & .1590 (.0236) & .0842 (.0383) & \best{.5795 (.0604)} \\
+ & EM, $10^{-2}$ & \best{.0989 (.0289)} & .0746 (.0407)
+ & \best{.1564 (.0269)} & \best{.0825 (.0470)} & .5729 (.0643) \\
+\addlinespace
+\multirow{2}{*}{$6.0$}
+ & $\Mone+\Mtwo$, wide & .1182 (.0378) & .0632 (.0278)
+ & .1530 (.0258) & .0991 (.0511) & .7402 (.0689) \\
+ & EM, $10^{-2}$ & \best{.0901 (.0228)} & \best{.0487 (.0258)}
+ & \best{.1348 (.0201)} & \best{.0667 (.0267)} & \best{.7698 (.0527)} \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+Two bandwidths, with approximately 17 and 133 neighbors, consistently
+outperform either a single bandwidth or a denser three-bandwidth grid
+$[17,67,133]$.  Directional coverage saturates quickly: increasing the number
+of second-order directions from 1 to 3 to 10 changes KL from $0.1133$ to
+$0.1075$ to $0.1058$, whereas 20 directions give $0.1057$ with no ARI gain.
+We consequently fix ten directions and two bandwidths rather than tune them
+separately in later experiments.
+
+\subsection{Uniform background contamination}
+\label{sec:uniform}
+
+Uniform replacement noise is the regime in which localized second moments
+are most useful.  Table~\ref{tab:uniform_main} reports the best configuration
+from a small first-order weight grid at each contamination level.  On clean
+data, EM retains a small KL advantage.  From $2\%$ to $10\%$ contamination,
+the moment estimator has lower KL and higher ARI than both baselines.  At
+$5\%$, for example, KL falls from $0.278$ for EM to $0.145$, while ARI rises
+from $0.385$ to $0.534$.  The full set of parameter metrics at this central
+noise level is shown in Table~\ref{tab:uniform_full}.
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Uniform contamination: mean (SD) over 60 independent datasets after
+averaging three model seeds.  The moment configuration is selected from the
+predefined first-order weight grid.}
+\label{tab:uniform_main}
+\begin{tabular}{@{}c l c c c@{}}
+\toprule
+$\varepsilon$ & Estimator & KL $\downarrow$ & ARI $\uparrow$
+  & Selected moment weights \\
+\midrule
+\multirow{3}{*}{$0\%$}
+ & Local moments & .1049 (.0269) & \best{.5795 (.0604)} & $\Mtwo+0.25\Mone$ \\
+ & EM, $10^{-2}$ & \best{.0989 (.0289)} & .5729 (.0643) & --- \\
+ & KMeans & .2290 (.0561) & .4865 (.0824) & --- \\
+\addlinespace
+\multirow{3}{*}{$2\%$}
+ & Local moments & \best{.1132 (.0303)} & \best{.5667 (.0605)} & $\Mtwo+0.125\Mone$ \\
+ & EM, $10^{-2}$ & .1919 (.0450) & .4699 (.0981) & --- \\
+ & KMeans & .2874 (.0640) & .4459 (.0795) & --- \\
+\addlinespace
+\multirow{3}{*}{$5\%$}
+ & Local moments & \best{.1449 (.0384)} & \best{.5339 (.0800)} & $\Mtwo$ \\
+ & EM, $10^{-2}$ & .2775 (.0381) & .3845 (.0649) & --- \\
+ & KMeans & .4407 (.0753) & .3871 (.0880) & --- \\
+\addlinespace
+\multirow{3}{*}{$10\%$}
+ & Local moments & \best{.3208 (.0656)} & \best{.4023 (.0978)} & $\Mtwo$ \\
+ & EM, $10^{-2}$ & .3387 (.0501) & .3688 (.0779) & --- \\
+ & KMeans & .7712 (.1151) & .2888 (.0912) & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Uniform contamination at $\varepsilon=5\%$: full parameter recovery
+metrics, mean (SD) over 60 datasets.}
+\label{tab:uniform_full}
+\begin{tabular}{@{}l c c c c c@{}}
+\toprule
+Estimator & KL $\downarrow$ & Weight TV $\downarrow$ & Mean error $\downarrow$
+ & Covariance $\downarrow$ & ARI $\uparrow$ \\
+\midrule
+$\Mtwo$ & \best{.1449 (.0384)} & \best{.0873 (.0442)}
+ & \best{.2091 (.2205)} & \best{.1889 (.0880)} & \best{.5339 (.0800)} \\
+EM, $10^{-2}$ & .2775 (.0381) & .2917 (.0309)
+ & .5019 (.1262) & 1.0959 (.2165) & .3845 (.0649) \\
+KMeans & .4407 (.0753) & .1314 (.0479)
+ & .3108 (.1606) & .4682 (.0876) & .3871 (.0880) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The paired comparison in Table~\ref{tab:uniform_ci} confirms that the result
+is not driven by a few easy datasets.  At every nonzero contamination level,
+the 95\% CIs for both KL and ARI exclude zero.  At $10\%$, the KL improvement
+has become small, but the clustering improvement remains detectable.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Dataset-paired difference $\Mtwo-\EM_{10^{-2}}$ with bootstrap 95\%
+CI.  Negative KL and positive ARI favor localized moments.}
+\label{tab:uniform_ci}
+\begin{tabular}{@{}c c c@{}}
+\toprule
+$\varepsilon$ & $\Delta$KL [95\% CI] & $\Delta$ARI [95\% CI] \\
+\midrule
+$0\%$  & $+.0107$ $[+.0041,+.0170]$ & $+.0003$ $[-.0098,+.0104]$ \\
+$2\%$  & \best{$-.0764$ $[-.0898,-.0630]$} & \best{$+.0959$ $[+.0728,+.1189]$} \\
+$5\%$  & \best{$-.1326$ $[-.1437,-.1213]$} & \best{$+.1494$ $[+.1277,+.1715]$} \\
+$10\%$ & \best{$-.0179$ $[-.0345,-.0015]$} & \best{$+.0334$ $[+.0098,+.0575]$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Moment-order ablation}
+
+The optimal first-order weight decreases monotonically with contamination:
+$0.25$ on clean data, approximately $0.125$ at $2\%$, and zero at $5\%$ and
+$10\%$.  On clean data, adding $0.25\Mone$ to $\Mtwo$ changes KL by
+$-.0047$ (95\% CI $[-.0070,-.0029]$) and ARI by $+.0063$
+($[+.0020,+.0108]$).  At $5\%$, even weight $0.03125$ changes KL by $+.0038$
+and ARI by $-.0038$, with both CIs excluding zero; at $10\%$, the changes are
+$+.0160$ and $-.0066$.  First moments encode local asymmetry and therefore
+help locate a correctly specified Gaussian component, but they also react
+directly to background observations.  The observed weight path is consistent
+with this bias--variance trade-off.
+
+Zeroth-order moments are more damaging.  Adding weight $1/16$ to $\Mzero$
+gives KL/ARI $0.1430/0.5275$ at $2\%$, compared with $0.1155/0.5657$ for pure
+$\Mtwo$; the paired differences, $+.0275$ and $-.0382$, have CIs excluding
+zero.  At $5\%$ and $10\%$ the same model reaches KL $0.2861$ and $0.4258$.
+The zeroth response measures local mass itself, so diffuse outliers create a
+systematic model--data discrepancy everywhere.  Local second moments are not
+immune to that discrepancy, but the factor $\langle x-c,u\rangle^2K_s(x-c)$
+suppresses observations both at the center and far away, making the useful
+signal more shell-like.
+
+\subsubsection{Are outliers useful as test centers?}
+
+One possible explanation for robustness is that outliers supply centers in
+low-density regions and explicitly constrain the fitted mixture there.  We
+test this at $5\%$ contamination by retaining all observations in the moment
+averages while changing only the centers used to place the tests.
+Table~\ref{tab:center_control} shows the opposite effect: replacing observed
+centers by oracle clean centers yields a small improvement.  With bandwidths
+held fixed, the paired KL change is $-.00511$ (95\% CI
+$[-.00660,-.00389]$), covariance error changes by $-.01086$, and ARI by
+$+.00446$; KL improves on 39 of 40 datasets.  Reselecting bandwidths from the
+clean centers adds no detectable improvement ($\Delta$KL $=-.00063$, CI
+includes zero).  Robustness therefore comes from the response and objective,
+not from deliberately probing negative space with outlier centers.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Center-placement control at $5\%$ uniform contamination; means over
+40 datasets and three model seeds.  All observations remain in the empirical
+moment averages.}
+\label{tab:center_control}
+\begin{tabular}{@{}l c c c c c@{}}
+\toprule
+Centers / bandwidths & KL & Weight TV & Mean error & Covariance & ARI \\
+\midrule
+Observed / observed & .1496 & .0883 & .1871 & .1696 & .5528 \\
+Oracle clean / fixed & \best{.1445} & \best{.0843} & \best{.1836} & .1587 & .5573 \\
+Oracle clean / reselected & \best{.1438} & .0850 & .1860 & \best{.1578} & \best{.5577} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Scaling with dimension}
+\label{sec:dimension_scaling}
+
+We next vary $d\in\{2,10,50,100,500\}$ on clean data and at $5\%$ uniform
+contamination.  To avoid the statistically ill-posed regime $n<d$, sample
+size follows $n(d)=\max(200,20d)$, preserving the order of
+$\sqrt{d/n_k}$ from the $d=10,n=200$ reference problem.  This is deliberately
+a fixed-compute screen: every moment fit samples 100 data centers, uses ten
+directions and the same two neighbor fractions $17/199$ and $133/199$.
+We compare the three previously selected configurations $\Mtwo$,
+$\Mtwo+0.03125\Mone$, and $\Mtwo+0.25\Mone$; Tables~\ref{tab:dim_clean}
+and~\ref{tab:dim_uniform} display the one with the lowest mean KL in each
+cell.  This within-grid choice is exploratory.
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Clean dimension scaling: mean (SD) over 20 datasets and one model
+seed.  The moment weight shown minimizes mean KL among the three prespecified
+configurations.  KL is not divided by dimension, so comparisons are within a
+row.}
+\label{tab:dim_clean}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}r r c c c c c c c@{}}
+\toprule
+$d$ & $n$ & Moment $w_1$ & Moment KL & EM KL & KMeans KL
+ & Moment ARI & EM ARI & KMeans ARI \\
+\midrule
+2   & 200   & .25    & .0318 (.0121) & \best{.0287 (.0146)} & .0578 (.0150)
+ & .4670 (.0688) & .4717 (.0751) & \best{.4800 (.0802)} \\
+10  & 200   & .25    & .1100 (.0312) & \best{.0953 (.0257)} & .2154 (.0317)
+ & .5650 (.0813) & \best{.5736 (.0680)} & .4873 (.0611) \\
+50  & 1000  & .25    & .4138 (.0881) & \best{.0796 (.0097)} & .6365 (.0916)
+ & .6612 (.0461) & \best{.8450 (.0147)} & .6817 (.0337) \\
+100 & 2000  & .03125 & .7499 (.3017) & \best{.0818 (.0077)} & 1.179 (.0867)
+ & .8375 (.0681) & \best{.9482 (.0094)} & .7901 (.0197) \\
+500 & 10000 & .25    & 5.261 (4.218) & \best{1.040 (2.319)} & 6.692 (3.100)
+ & .9057 (.1975) & \best{.9352 (.1583)} & .8187 (.1378) \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Dimension scaling with $5\%$ uniform contamination.  Reporting and
+selection are as in Table~\ref{tab:dim_clean}.}
+\label{tab:dim_uniform}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}r r c c c c c c c@{}}
+\toprule
+$d$ & $n$ & Moment $w_1$ & Moment KL & EM KL & KMeans KL
+ & Moment ARI & EM ARI & KMeans ARI \\
+\midrule
+2   & 200   & .25    & \best{.0410 (.0117)} & .0853 (.0247) & .0853 (.0229)
+ & .4553 (.1022) & .2700 (.1200) & \best{.4607 (.0864)} \\
+10  & 200   & 0      & \best{.1524 (.0487)} & .2745 (.0464) & .4378 (.0782)
+ & \best{.5375 (.1098)} & .3825 (.0897) & .3786 (.0796) \\
+50  & 1000  & .03125 & 1.100 (.134) & \best{.6271 (.0169)} & 2.019 (.234)
+ & .4306 (.0320) & \best{.4796 (.0251)} & .3521 (.0643) \\
+100 & 2000  & 0      & 2.360 (1.052) & \best{1.192 (.0408)} & 4.098 (.418)
+ & .4620 (.1100) & \best{.4919 (.0226)} & .3346 (.0285) \\
+500 & 10000 & .03125 & 11.864 (6.538) & \best{6.805 (1.714)} & 19.523 (2.412)
+ & \best{.6684 (.2133)} & .5678 (.0061) & .4967 (.0358) \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+The low-dimensional contamination advantage is reproduced at $d=2$ and
+$d=10$, but reverses at $d=50$.  In a paired comparison of the fixed pure
+$\Mtwo$ model with EM, the KL differences are $-.0441$
+($[-.0546,-.0344]$), $-.1221$ ($[-.1398,-.1033]$), and $+.5050$
+($[+.4238,+.5873]$) for $d=2,10,50$.  The corresponding ARI differences are
+$+.1787$ ($[+.1155,+.2434]$), $+.1550$ ($[+.1176,+.1930]$), and $-.0679$
+($[-.0860,-.0495]$).  At $d=100$ and $500$, pure-$\Mtwo$ KL remains
+significantly worse, whereas its ARI difference from EM is inconclusive.
+On clean data, the fixed $\Mtwo+0.25\Mone$ model is tied with EM at $d=2$ in
+paired KL, is slightly worse at $d=10$, and is substantially worse thereafter.
+
+The degradation is not a runtime failure: every fit returns successfully.
+It is nevertheless statistically unstable.  Using the same scale/weight/mean
+diagnostic as in Section~\ref{sec:heavy_tails}, the selected contaminated
+moment model is flagged in $25\%$, $100\%$, and $30\%$ of runs at
+$d=50,100,500$, compared with $0\%$, $0\%$, and $5\%$ for EM.  At $d=500$
+clean data, all methods inherit a $15\%$ failure rate from their shared
+KMeans initialization.  With a fixed 2,000 second-order conditions, the
+moment objective is only mildly overdetermined relative to the 1,505 mixture
+parameters at $d=500$, and the localized conditions remain correlated.  The
+screen therefore shows that increasing $n$ proportionally to $d$ is not
+sufficient: directional coverage, the number of centers, and initialization
+must also scale.  The robustness claim in Section~\ref{sec:uniform} should be
+restricted to low and moderate dimension under the present feature budget.
+
+\subsection{Radial second moments}
+\label{sec:radial}
+
+Radial tests replace multiple directional projections by a single rotation-
+invariant shell.  Table~\ref{tab:radial_clean} shows that the uncompensated
+radial moment is effective on clean data.  With equal variances it improves
+covariance recovery over a directional configuration, while the hybrid
+$\Mone+4\Mtwo+4\Rtwo$ matches the fully directional model at variance ratio
+$3$.  Compensation is consistently worse, despite its appealing zero-integral
+property.  Although the identity cancels an ideal constant background at the
+population level, the signed subtraction creates cancellation between two
+noisy empirical quantities, is affected by the finite box boundary, and makes
+the fitted objective more difficult to optimize.
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Radial-moment ablation on clean data: mean (SD) over 20 datasets at
+variance ratio $1$ and 30 at ratio $3$, with two model seeds.  ``Comp.''
+denotes the zero-integral compensated radial test.}
+\label{tab:radial_clean}
+\begin{tabular}{@{}c l c c c@{}}
+\toprule
+Variance ratio & Moment model & KL $\downarrow$ & Covariance $\downarrow$ & ARI $\uparrow$ \\
+\midrule
+\multirow{3}{*}{$1$}
+ & $3\Mone+8\Rtwo$ & \best{.0855 (.0257)} & \best{.0454 (.0206)} & .3256 (.0628) \\
+ & $3\Mone+8\Rtwo$, comp. & .0916 (.0296) & .0522 (.0281) & \best{.3336 (.0738)} \\
+ & $3\Mone+3\Mtwo$, wide & .1048 (.0284) & .0757 (.0214) & .3210 (.0607) \\
+\addlinespace
+\multirow{3}{*}{$3$}
+ & $\Mone+4\Mtwo+4\Rtwo$ & \best{.1043 (.0277)} & .0896 (.0389) & .5788 (.0557) \\
+ & same, comp. & .1213 (.0296) & .1245 (.0396) & .5502 (.0648) \\
+ & $\Mone+8\Mtwo$ & .1058 (.0270) & \best{.0891 (.0397)} & \best{.5794 (.0585)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Under uniform contamination, however, the directional moment is preferable.
+Table~\ref{tab:radial_contamination} compares a half-directional,
+half-radial hybrid with pure $\Mtwo$.  The uncompensated hybrid has higher KL
+and lower ARI at $2\%$ and $5\%$; at $10\%$ the KL difference is inconclusive,
+but the ARI loss remains significant.  Compensation produces a large and
+systematic deterioration: its analytical background cancellation does not
+translate into better parameter recovery.  Radial moments are therefore a
+useful compact clean-data feature, not the source of the principal robustness
+result.
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Radial moments under uniform contamination: mean (SD) over 60
+datasets after averaging three model seeds.}
+\label{tab:radial_contamination}
+\begin{tabular}{@{}c l c c c@{}}
+\toprule
+$\varepsilon$ & Moment model & KL $\downarrow$ & Covariance $\downarrow$ & ARI $\uparrow$ \\
+\midrule
+\multirow{3}{*}{$2\%$}
+ & $\Mtwo$ & \best{.1155 (.0307)} & \best{.1107 (.0456)} & \best{.5657 (.0611)} \\
+ & $0.5\Mtwo+0.5\Rtwo$ & .1237 (.0321) & .1301 (.0487) & .5452 (.0663) \\
+ & same, comp. & .1852 (.0476) & .2346 (.0606) & .4576 (.0819) \\
+\addlinespace
+\multirow{3}{*}{$5\%$}
+ & $\Mtwo$ & \best{.1449 (.0384)} & \best{.1889 (.0880)} & \best{.5339 (.0800)} \\
+ & $0.5\Mtwo+0.5\Rtwo$ & .1546 (.0397) & .2080 (.0969) & .5094 (.0853) \\
+ & same, comp. & .3441 (.0510) & .4875 (.0875) & .3261 (.0970) \\
+\addlinespace
+\multirow{3}{*}{$10\%$}
+ & $\Mtwo$ & \best{.3208 (.0656)} & \best{.5305 (.1883)} & \best{.4023 (.0978)} \\
+ & $0.5\Mtwo+0.5\Rtwo$ & .3235 (.0642) & .5351 (.1918) & .3818 (.1020) \\
+ & same, comp. & .5215 (.0659) & 1.2133 (1.4154) & .2126 (.0914) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For the uncompensated hybrid relative to $\Mtwo$, paired KL differences are
+$+.0082$ ($[+.0065,+.0099]$), $+.0097$ ($[+.0063,+.0136]$), and $+.0027$
+($[-.0053,+.0109]$) at $2\%$, $5\%$, and $10\%$, respectively.  The
+corresponding ARI differences are $-.0205$, $-.0245$, and $-.0205$, with all
+three 95\% CIs below zero.
+
+\subsection{Optimization ablations}
+\label{sec:optimizer_ablation}
+
+The nonconvex moment objective raises two distinct questions: whether the
+default stopping rule leaves appreciable optimization error, and whether
+joint mean/variance component updates are necessary.  We address them
+separately.
+
+\subsubsection{Stopping, polishing, and update granularity}
+
+Table~\ref{tab:optimizer_standard} compares the default component-wise method
+with a final joint geometry polish, a stricter iteration budget, and joint
+optimization of all geometry from the initial solution.  Both polishing and
+stricter stopping change the final objective by less than $0.1\%$ and have no
+meaningful external-metric effect.  In contrast, optimizing all means and
+variances jointly from the start is worse in both regimes and produces one
+near-degenerate contaminated fit.  The result is consistent with poor basin
+selection rather than premature termination.  A final polish is omitted from
+the main experiments because its median relative loss gain is only
+$3\times10^{-5}$ for $\Mtwo$ and $3\times10^{-4}$ for the mixed model.
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Optimizer diagnostics: mean (SD) over 20 new datasets and two model
+seeds.  Every row uses the same pure-$\Mtwo$ objective.}
+\label{tab:optimizer_standard}
+\begin{tabular}{@{}l c c c c c c@{}}
+\toprule
+Data & Geometry update & KL $\downarrow$ & Covariance $\downarrow$ & ARI $\uparrow$
+ & Outer iters & Converged \\
+\midrule
+\multirow{4}{*}{Clean}
+ & Component-wise & .1125 (.0345) & .0831 (.0375) & .5623 (.0822) & 79.5 & 1.00 \\
+ & + joint polish & .1124 (.0345) & .0829 (.0377) & .5618 (.0823) & 79.5 & 1.00 \\
+ & Strict budget & .1125 (.0345) & .0830 (.0376) & .5620 (.0832) & --- & --- \\
+ & Joint from start & .1166 (.0366) & .0911 (.0392) & .5561 (.0870) & --- & --- \\
+\addlinespace
+\multirow{4}{*}{$5\%$ uniform}
+ & Component-wise & \best{.1516 (.0481)} & \best{.1801 (.0729)} & .5420 (.1060) & 110.3 & .90 \\
+ & + joint polish & \best{.1515 (.0481)} & \best{.1800 (.0729)} & .5428 (.1057) & 110.3 & .90 \\
+ & Strict budget & \best{.1511 (.0479)} & \best{.1793 (.0722)} & \best{.5430 (.1056)} & --- & --- \\
+ & Joint from start & .1612 (.0518) & .5198 (1.4625) & .5197 (.1060) & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The mixed $\Mtwo+0.25\Mone$ objective is harder to optimize: the stopping
+criterion is reached in only $45.0\%$ of clean and $52.5\%$ of contaminated
+fits, compared with $100\%$ and $90.0\%$ for pure $\Mtwo$.  Nevertheless,
+extra iterations and polishing do not improve the external metrics.  Training
+loss is therefore useful as an optimization diagnostic but not as a reliable
+selector between different moment families.
+
+The absolute loss is also easy to misinterpret.  At $5\%$ contamination the
+mean final pure-$\Mtwo$ loss is $3.93\times10^{-6}$, but this is an average
+squared residual over 4,000 second-order conditions.  Its root scale,
+approximately $1.9\times10^{-3}$, should be compared with a typical empirical
+small-bandwidth response of $3.1\times10^{-2}$.  The model has 35 free
+parameters and the conditions are correlated; a small training loss is
+therefore neither literal interpolation nor evidence of correct distribution
+recovery.  In 120 controlled fits, final loss has correlations only $0.22$
+with KL, $0.13$ with covariance error, and $0.03$ with ARI.  Leave-one-out
+removes self-interaction bias but not optimism from evaluating the criterion
+on the fitting sample.  A held-out moment loss remains an important future
+model-selection diagnostic.
+
+\subsubsection{Separating mean and variance updates}
+
+We implemented two additional optimizers without changing the primary code
+path.  The \emph{formula update} performs a mean-only component step and then
+estimates its variance from the ratio of localized radial zeroth- and
+second-order responses.  Before taking the ratio, it subtracts the modeled
+contributions of every other component, as required by the correction in
+Equation~(26); the resulting ratio is clipped only to keep the closed-form
+variance finite.  Weights are re-estimated after a full component sweep.  The
+\emph{joint-variance block} performs a complete mean sweep with all variances
+fixed and then optimizes all log-variances jointly by least squares.
+
+Table~\ref{tab:variance_optimizers} shows a sharp distinction.  The formula
+update is competitive in the narrow homoscedastic setting, but fails for
+variance ratio $3$ and under contamination: roughly 59--64\% of its outer
+sweeps increase the objective, even though invalid or clipped ratios occur in
+at most $4.5\%$ of component updates.  Hence the problem is not numerical
+safeguarding; a
+locally derived variance can decrease its own corrected scalar discrepancy
+while increasing the coupled multi-center objective.  The joint-variance
+block matches the legacy optimizer on clean data, but is slightly worse under
+contamination and has a rare variance-collapse mode.  It is also 13--36\%
+slower.  These results support retaining joint mean/variance updates within
+each component as the primary optimizer.
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Separated variance updates: mean (SD).  New optimizers use 20
+datasets at variance ratio $1$, 30 at ratio $3$, and 20 in each contaminated
+cell, with two or three model seeds.  Legacy rows are matched references from
+the main experiments.}
+\label{tab:variance_optimizers}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}l l l c c c@{}}
+\toprule
+Data & Model & Optimizer & KL $\downarrow$ & Covariance $\downarrow$ & ARI $\uparrow$ \\
+\midrule
+\multirow{4}{*}{Clean, ratio $1$}
+ & $3\Mone$ & Formula & .0872 (.0226) & .0748 (.0219) & .2998 (.0734) \\
+ & $3\Mone$ & Joint variance & .2168 (.0688) & .3155 (.0909) & .2811 (.0639) \\
+ & $3\Mone+8\Rtwo$ & Formula & .1161 (.0333) & .0813 (.0340) & \best{.3304 (.0640)} \\
+ & $3\Mone+8\Rtwo$ & Joint variance & \best{.0855 (.0258)} & \best{.0457 (.0210)} & .3249 (.0618) \\
+\addlinespace
+\multirow{6}{*}{Clean, ratio $3$}
+ & $\Mtwo$ & Formula & .4850 (.2014) & .3720 (.1221) & .2645 (.1342) \\
+ & $\Mtwo$ & Joint variance & .1123 (.0310) & .0946 (.0453) & .5658 (.0625) \\
+ & $\Mtwo$ & Legacy & .1112 (.0293) & .0925 (.0426) & .5689 (.0639) \\
+ & $\Mone+4\Mtwo+4\Rtwo$ & Formula & .5708 (.1913) & .5289 (.3227) & .2374 (.1082) \\
+ & $\Mone+4\Mtwo+4\Rtwo$ & Joint variance & \best{.1041 (.0279)} & \best{.0895 (.0408)} & .5765 (.0596) \\
+ & $\Mone+4\Mtwo+4\Rtwo$ & Legacy & .1043 (.0277) & .0896 (.0389) & \best{.5788 (.0557)} \\
+\addlinespace
+\multirow{3}{*}{$5\%$ uniform}
+ & $\Mtwo$ & Formula & .6426 (.1833) & .4654 (.2511) & .2182 (.1062) \\
+ & $\Mtwo$ & Joint variance & .1484 (.0470) & .4097 (1.0234) & .5309 (.1001) \\
+ & $\Mtwo$ & Legacy & \best{.1449 (.0384)} & \best{.1889 (.0880)} & \best{.5339 (.0800)} \\
+\addlinespace
+\multirow{3}{*}{$10\%$ uniform}
+ & $\Mtwo$ & Formula & .8369 (.1253) & .5350 (.4467) & .1967 (.0746) \\
+ & $\Mtwo$ & Joint variance & .3463 (.0696) & .5889 (.2051) & .3727 (.1190) \\
+ & $\Mtwo$ & Legacy & \best{.3208 (.0656)} & \best{.5305 (.1883)} & \best{.4023 (.0978)} \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+The large covariance SD for the joint-variance block at $5\%$ is caused by a
+single fit whose variance ratio exceeds $10^{12}$.  Excluding that dataset
+reduces its mean covariance error to approximately $0.181$, close to the
+legacy result; we retain the failure in the table because it is part of the
+method's empirical stability.
+
+\FloatBarrier
+\subsection{Global heavy tails and asymmetric misspecification}
+\label{sec:heavy_tails}
+
+Uniform replacement creates sparse, spatially diffuse contamination.  The
+Student-$t$ experiment instead makes every component heavy-tailed, so no
+subset of observations is exactly Gaussian.  Table~\ref{tab:student_main}
+shows that a small first-order contribution is now consistently useful.  At
+$\nu=10$ and $5$, $\Mone+\Mtwo$ has significantly lower KL and higher ARI
+than EM.  At $\nu=5$, KMeans has lower KL than the moment estimator but is
+statistically tied in ARI.  At $\nu=3$, no likelihood-based Gaussian fit is a
+good distributional approximation: KMeans has the lowest KL, the moment
+method has much higher ARI than EM, but its KL and covariance error are worse.
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Moment-matched Student-$t$ components: mean (SD) over 60 datasets
+after averaging three model seeds.  The selected moment model uses weight one
+on $\Mone$ for $\nu=10,5$ and weight $0.5$ for $\nu=3$.}
+\label{tab:student_main}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}c l c c c c c@{}}
+\toprule
+$\nu$ & Estimator & KL $\downarrow$ & Weight TV $\downarrow$ & Mean error $\downarrow$
+ & Covariance $\downarrow$ & ARI $\uparrow$ \\
+\midrule
+\multirow{3}{*}{$10$}
+ & $\Mone+\Mtwo$ & \best{.1451 (.0437)} & \best{.0654 (.0310)}
+ & \best{.1588 (.0245)} & \best{.1468 (.0524)} & \best{.5180 (.0589)} \\
+ & EM, $10^{-2}$ & .1595 (.0476) & .0951 (.0551) & .1618 (.0551)
+ & .2382 (.0871) & .4859 (.0802) \\
+ & KMeans & .2269 (.0532) & .1059 (.0359) & .2123 (.0342)
+ & .2138 (.0535) & .4938 (.0669) \\
+\addlinespace
+\multirow{3}{*}{$5$}
+ & $\Mone+\Mtwo$ & .3213 (.0770) & \best{.0720 (.0535)}
+ & \best{.2483 (.5253)} & \best{.6724 (1.8032)} & .4554 (.0720) \\
+ & EM, $10^{-2}$ & .4082 (.1003) & .1916 (.1005) & .5257 (.8856)
+ & .7485 (.6956) & .3262 (.1116) \\
+ & KMeans & \best{.2717 (.1110)} & .1220 (.0807) & .5327 (.9039)
+ & 1.0237 (2.2632) & \best{.4670 (.1077)} \\
+\addlinespace
+\multirow{3}{*}{$3$}
+ & $0.5\Mone+\Mtwo$ & 1.1560 (.4139) & \best{.1632 (.1302)}
+ & \best{2.4679 (7.8186)} & 5.1856 (6.0362) & .4077 (.1255) \\
+ & EM, $10^{-2}$ & 1.0063 (.2046) & .3455 (.1429) & 2.9965 (7.8140)
+ & \best{1.7030 (.9426)} & .2024 (.1612) \\
+ & KMeans & \best{.5654 (.2316)} & .2260 (.1643) & 3.0168 (7.8026)
+ & 3.8213 (3.8819) & \best{.4280 (.2056)} \\
+\bottomrule
+\end{tabular}}
+\end{table}
+\FloatBarrier
+
+Dataset-paired CIs qualify these comparisons.  Relative to EM, the moment
+model changes KL/ARI by $-.0145$ ($[-.0238,-.0055]$) and $+.0321$
+($[+.0181,+.0462]$) at $\nu=10$, and by $-.0869$
+($[-.1057,-.0693]$) and $+.1292$ ($[+.1067,+.1531]$) at $\nu=5$.  At
+$\nu=3$, it improves ARI by $+.2053$ ($[+.1761,+.2368]$) but worsens KL by
+$+.1498$ ($[+.0576,+.2624]$).  Compared with KMeans, its ARI differences at
+$\nu=5$ and $3$ are $-.0116$ and $-.0203$, and both intervals include zero.
+
+The very large standard deviations at $\nu\leq5$ are caused by rare
+degenerate fits, so means alone are misleading.  Table~\ref{tab:student_robust}
+reports robust summaries and an explicit failure diagnostic.  At $\nu=5$ the
+typical moment solution remains accurate: median mean error is $0.152$ and
+median covariance error is $0.344$, far below their respective means.  At
+$\nu=3$, however, the upper quartile is already affected; this is a genuine
+stability limit rather than a handful of harmless outliers.
+
+\begin{table}[ht]
+\centering
+\scriptsize
+\caption{Heavy-tail stability of the selected $\Mone+\Mtwo$ model.  Errors
+are median [IQR] over dataset-level averages.  A run is flagged when variance
+ratio $>10^3$, minimum weight $<.01$, or mean error $>1$.}
+\label{tab:student_robust}
+\begin{tabular}{@{}c c c c c c@{}}
+\toprule
+$\nu$ & Mean error & Covariance error & Variance ratio
+ & Failure: $\Mtwo$ & Failure: selected \\
+\midrule
+$10$ & .160 [.142,.176] & .145 [.114,.174] & 3.55 [3.23,3.82] & 0.0\% & 0.0\% \\
+$5$  & .152 [.130,.166] & .344 [.285,.388] & 4.98 [4.47,5.85] & 8.3\% & 3.3\% \\
+$3$  & .154 [.123,3.055] & .778 [.713,13.301] & 9.09 [6.26,$8.0\!\times\!10^{11}$]
+ & 41.1\% & 36.7\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+\FloatBarrier
+
+The failures are strongly associated with initialization.  Conditional on a
+failed KMeans initialization, pure $\Mtwo$ fails on $68.2\%$ of runs at
+$\nu=5$ and $77.9\%$ at $\nu=3$; conditional on a stable initialization, no
+failure is observed.  The largest squared Mahalanobis norm has Spearman
+correlation $0.49$ and $0.73$ with failure at $\nu=5$ and $3$, respectively.
+For 21 of the 60 datasets at $\nu=3$, all three moment seeds fail, so adding
+random restarts alone cannot repair the severe regime.  These are statistical
+failures even though every optimizer returns a nominally successful status.
+
+The directional-Gamma experiment provides a complementary negative result.
+Across all 12 asymmetric settings, regularized EM has the lowest true KL; in
+the aggregate comparison its mean KL is $0.242$ (SD $0.036$ across settings),
+versus $0.283$ (SD $0.066$) for the best moment configuration.  The paired
+gap is positive in all 12 settings, with mean $0.040$ and SD $0.036$.
+Localized moments therefore do not confer generic robustness to arbitrary
+misspecification.  They are most effective when contamination is symmetric
+within components or diffuse in space, and can be biased by coherent
+directional skew.
+
+\FloatBarrier
+\clearpage
+\subsection{Summary of empirical findings}
+\label{sec:exp_summary}
+
+The experiments support four conclusions.  First, on clean Gaussian data the
+localized estimator is competitive in the homoscedastic and moderate-variance
+regimes, but EM is more efficient when component scales differ strongly.
+Second, directional second moments give a large and statistically stable
+advantage under $2$--$10\%$ uniform contamination; the gain does not depend on
+using outliers as test centers at $d\leq10$, but it does not survive the fixed-
+feature-budget screen from $d=50$ onward.  Third, additional moment orders must be
+treated as model-dependent regularizers: first moments help on clean and
+globally heavy-tailed data but should be downweighted under diffuse
+contamination, while zeroth moments and compensated radial moments are often
+too sensitive to misspecification.  Finally, the default component-wise joint
+mean/variance optimizer is not merely an implementation choice.  Formulaic
+variance estimation is unreliable once scales differ, whereas a separated
+joint variance block is broadly accurate but slower and slightly less stable.
+
+The main limitation is severe global heavy tails.  In that regime the method
+can preserve clustering substantially better than EM while producing rare
+but extreme parameter estimates, and at $\nu=3$ KMeans is the better Gaussian
+approximation by forward KL.  A robust initialization or explicit safeguards
+against component-scale explosion are therefore necessary before the method
+can be recommended as a general-purpose replacement for EM.  The dimension
+screen adds a second limitation: the number and geometry of localized tests
+must scale with the parameter dimension, not only with sample size.  All
+configurations and per-run outputs are stored under
+\texttt{experiments/configs/} and \texttt{results/}, with matching run names.
+
+\end{document}

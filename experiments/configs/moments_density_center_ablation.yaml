@@ -1,0 +1,323 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_density_center_ablation
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 3
+
+# Density-center ablation for the five strongest moment configurations from
+# moments_contamination_robustness. Each configuration is evaluated with the
+# three requested filtering fractions and with fraction=1.0 as an in-run
+# unfiltered control. The three sklearn controls are unchanged.
+#
+# All dataset definitions and seeds match the preceding contamination run.
+# This isolates the center filter and places every comparison in one output
+# table instead of relying on results produced by another run.
+#
+# 12 scenarios x 20 datasets x 3 model seeds x 23 models = 16,560 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 8
+  model_seeds_per_dataset: 3
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+# Metrics target the uncontaminated Gaussian core. Explicit outliers are
+# excluded only from ARI through each dataset's evaluation_mask; every model is
+# still fitted to the complete contaminated sample.
+metrics:
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: auto
+  n_zero_moments: 1
+  n_first_moments: 1
+  n_second_moments: 1
+  second_moment_mode: same_direction
+  zero_moment_weight: 1.0
+  first_moment_weight: 1.0
+  second_moment_weight: 1.0
+  normalize_moment_losses: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-6
+  objective_atol: 0.0
+  convergence_patience: 2
+  max_steps: 30
+  geom_sweeps: 1
+  ls_max_nfev: 20
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+
+sklearn_gmm_kmeans: &sklearn_gmm_kmeans
+  _target_: experiments.wrappers.SklearnGaussianMixtureWrapper
+  init_mode: kmeans
+  covariance_type: spherical
+  tol: 1.0e-5
+  reg_covar: 1.0e-6
+  max_iter: 500
+  kmeans_n_init: 10
+  kmeans_max_iter: 300
+
+sklearn_kmeans: &sklearn_kmeans
+  _target_: experiments.wrappers.SklearnKMeansWrapper
+  init_mode: kmeans
+  n_init: 10
+  max_iter: 300
+  tol: 1.0e-4
+
+models:
+  # Rank 1 among moment estimators: penalty and near-mean probes together.
+  - model_name: stab_balanced_both_f100
+    target: &stab_balanced_both
+      <<: *moment_base
+      test_center_fraction: 1.0
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+      mean_penalty_weight: 1.0e-3
+
+  - model_name: stab_balanced_both_f090
+    target:
+      <<: *stab_balanced_both
+      test_center_fraction: 0.9
+
+  - model_name: stab_balanced_both_f050
+    target:
+      <<: *stab_balanced_both
+      test_center_fraction: 0.5
+
+  - model_name: stab_balanced_both_f030
+    target:
+      <<: *stab_balanced_both
+      test_center_fraction: 0.3
+
+  # Rank 2: penalty without additional near-mean probes.
+  - model_name: stab_balanced_penalty_f100
+    target: &stab_balanced_penalty
+      <<: *moment_base
+      test_center_fraction: 1.0
+      mean_penalty_weight: 1.0e-3
+
+  - model_name: stab_balanced_penalty_f090
+    target:
+      <<: *stab_balanced_penalty
+      test_center_fraction: 0.9
+
+  - model_name: stab_balanced_penalty_f050
+    target:
+      <<: *stab_balanced_penalty
+      test_center_fraction: 0.5
+
+  - model_name: stab_balanced_penalty_f030
+    target:
+      <<: *stab_balanced_penalty
+      test_center_fraction: 0.3
+
+  # Rank 3: near-mean probes without anchoring means to KMeans.
+  - model_name: stab_balanced_near_f100
+    target: &stab_balanced_near
+      <<: *moment_base
+      test_center_fraction: 1.0
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+
+  - model_name: stab_balanced_near_f090
+    target:
+      <<: *stab_balanced_near
+      test_center_fraction: 0.9
+
+  - model_name: stab_balanced_near_f050
+    target:
+      <<: *stab_balanced_near
+      test_center_fraction: 0.5
+
+  - model_name: stab_balanced_near_f030
+    target:
+      <<: *stab_balanced_near
+      test_center_fraction: 0.3
+
+  # Rank 4: the stabilized n_second=3, second_weight=0.25 configuration.
+  - model_name: stab_n3_w025_both_f100
+    target: &stab_n3_w025_both
+      <<: *moment_base
+      n_second_moments: 3
+      second_moment_weight: 0.25
+      test_center_fraction: 1.0
+      r_tests_near_means: 1.0
+      alpha_std_tests: 0.1
+      mean_penalty_weight: 1.0e-3
+
+  - model_name: stab_n3_w025_both_f090
+    target:
+      <<: *stab_n3_w025_both
+      test_center_fraction: 0.9
+
+  - model_name: stab_n3_w025_both_f050
+    target:
+      <<: *stab_n3_w025_both
+      test_center_fraction: 0.5
+
+  - model_name: stab_n3_w025_both_f030
+    target:
+      <<: *stab_n3_w025_both
+      test_center_fraction: 0.3
+
+  # Rank 5: no mean penalty and no additional near-mean probes. This is the
+  # cleanest measurement of the density filter by itself.
+  - model_name: stab_balanced_none_f100
+    target: &stab_balanced_none
+      <<: *moment_base
+      test_center_fraction: 1.0
+
+  - model_name: stab_balanced_none_f090
+    target:
+      <<: *stab_balanced_none
+      test_center_fraction: 0.9
+
+  - model_name: stab_balanced_none_f050
+    target:
+      <<: *stab_balanced_none
+      test_center_fraction: 0.5
+
+  - model_name: stab_balanced_none_f030
+    target:
+      <<: *stab_balanced_none
+      test_center_fraction: 0.3
+
+  # Unchanged likelihood and initialization-only baselines.
+  - model_name: em_kmeans_reg1e6
+    target:
+      <<: *sklearn_gmm_kmeans
+
+  - model_name: em_kmeans_reg1e2
+    target:
+      <<: *sklearn_gmm_kmeans
+      reg_covar: 1.0e-2
+
+  - model_name: kmeans_spherical
+    target:
+      <<: *sklearn_kmeans
+
+dataset_base: &dataset_base
+  n_features: 10
+  n_components: 3
+  n_samples: 500
+  covariance_type: spherical
+  variance_spread: 6.0
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 20.0
+  min_mahalanobis_distance: 2.0
+
+datasets:
+  - name: student_t_df10_d10_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.student_t.StudentTDatasetGenerator
+      degrees_of_freedom: 10.0
+
+  - name: student_t_df3_d10_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.student_t.StudentTDatasetGenerator
+      degrees_of_freedom: 3.0
+
+  - name: student_t_df5_d30_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.student_t.StudentTDatasetGenerator
+      n_features: 30
+      degrees_of_freedom: 5.0
+
+  - name: variance_eps002_x9_d10_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.variance_contamination.VarianceContaminationDatasetGenerator
+      contamination_fraction: 0.02
+      variance_inflation: 9.0
+
+  - name: variance_eps010_x100_d10_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.variance_contamination.VarianceContaminationDatasetGenerator
+      contamination_fraction: 0.10
+      variance_inflation: 100.0
+
+  - name: variance_eps005_x25_d10_n200_hard_imbalanced
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.variance_contamination.VarianceContaminationDatasetGenerator
+      n_samples: 200
+      weights_concentration: 0.3
+      contamination_fraction: 0.05
+      variance_inflation: 25.0
+
+  - name: uniform_eps002_pad2_d10_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.uniform_background.UniformBackgroundDatasetGenerator
+      contamination_fraction: 0.02
+      box_padding: 2.0
+
+  - name: uniform_eps010_pad8_d10_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.uniform_background.UniformBackgroundDatasetGenerator
+      contamination_fraction: 0.10
+      box_padding: 8.0
+
+  - name: uniform_eps005_pad4_d30_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.uniform_background.UniformBackgroundDatasetGenerator
+      n_features: 30
+      contamination_fraction: 0.05
+      box_padding: 4.0
+
+  - name: radial_eps002_r4_6_d10_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.radial_outliers.RadialOutlierDatasetGenerator
+      contamination_fraction: 0.02
+      min_radius_scale: 4.0
+      max_radius_scale: 6.0
+
+  - name: radial_eps010_r10_16_d10_n500_hard_uniform
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.radial_outliers.RadialOutlierDatasetGenerator
+      contamination_fraction: 0.10
+      min_radius_scale: 10.0
+      max_radius_scale: 16.0
+
+  - name: radial_eps005_r6_10_d10_n200_hard_imbalanced
+    target:
+      <<: *dataset_base
+      _target_: experiments.synthetic_data.radial_outliers.RadialOutlierDatasetGenerator
+      n_samples: 200
+      weights_concentration: 0.3
+      contamination_fraction: 0.05
+      min_radius_scale: 6.0
+      max_radius_scale: 10.0

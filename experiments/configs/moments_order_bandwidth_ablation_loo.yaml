@@ -1,0 +1,8 @@
+defaults:
+  - moments_order_bandwidth_ablation
+  - _self_
+
+# Exact copy of moments_order_bandwidth_ablation with leave-one-out responses
+# and leave-one-out soft-neighbor counts enabled for every moment model.
+run_name: moments_order_bandwidth_ablation_loo
+leave_one_out: true

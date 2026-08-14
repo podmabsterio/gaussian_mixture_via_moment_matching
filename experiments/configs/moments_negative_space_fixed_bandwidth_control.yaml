@@ -1,0 +1,149 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_negative_space_fixed_bandwidth_control
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+# Small paired control for the negative-space center experiment.
+#
+# Primary comparison:
+#   standard_observed_centers_observed_bandwidth
+#       vs
+#   clean_only_centers_observed_bandwidth
+#
+# Both rows select dataset-specific bandwidths from the same original 200
+# observed centers, then differ only in the ten fitted test-center slots: actual
+# outliers versus repeated clean observations.  A third row lets clean-only
+# centers select their own bandwidths and reproduces the previous oracle result.
+#
+# TODO(research): contamination labels and bandwidth-reference routing are
+# oracle mechanism controls, not a proposed estimator.
+#
+# 3 scenarios x 40 dataset seeds x 3 model seeds x 2 models = 720 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 40
+  dataset_seed_start: 201
+  model_seeds_per_dataset: 3
+  save_raw_results: true
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+metrics:
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.RelativeLossDrop
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+  - _target_: experiments.metrics.MinimumSelectedBandwidth
+  - _target_: experiments.metrics.MaximumSelectedBandwidth
+  - _target_: experiments.metrics.MinimumEstimatedWeight
+  - _target_: experiments.metrics.EstimatedVarianceRatio
+  - _target_: experiments.metrics.SmallBandwidthEmpiricalMomentByCenterRole
+    moment_order: 2
+    center_role: 0
+    name: Small-s m2 clean centers
+  - _target_: experiments.metrics.SmallBandwidthEmpiricalMomentByCenterRole
+    moment_order: 2
+    center_role: 1
+    name: Small-s m2 observed-outlier centers
+
+moment_base: &moment_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: [17, 133]
+  n_zero_moments: 1
+  n_first_moments: 10
+  n_second_moments: 10
+  second_moment_mode: same_direction
+  zero_moment_weight: 0.0
+  first_moment_weight: 0.0
+  second_moment_weight: 1.0
+  normalize_moment_losses: true
+  scale_normalize_moments: true
+  leave_one_out: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+  # TODO(research): Explicit opt-in to temporary oracle center controls.
+  experimental_oracle_test_centers: true
+  experimental_uniform_center_fraction: 0.05
+
+models:
+  - model_name: pure_second_w1_0
+    target:
+      <<: *moment_base
+
+  # Minimal positive first-order weight verifies that any conclusion about the
+  # center mechanism is not peculiar to the exact pure-second endpoint.
+  - model_name: second_plus_first_w1_003125
+    target:
+      <<: *moment_base
+      first_moment_weight: 0.03125
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.uniform_background.OracleCenterScenarioUniformBackgroundDatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 200
+  covariance_type: spherical
+  variance_spread: 3.0
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 1000000.0
+  min_mahalanobis_distance: 2.0
+  contamination_fraction: 0.05
+  box_padding: 4.0
+
+datasets:
+  # Baseline: actual observed centers and bandwidths selected from those same
+  # observed centers.  This should reproduce the previous standard scenario.
+  - name: eps005_standard_centers_observed_bandwidth
+    target:
+      <<: *dataset_base
+      experimental_test_center_scenario: standard
+      experimental_bandwidth_reference: all_observed
+
+  # Primary intervention: replace the ten outlier centers by clean centers but
+  # retain exactly the baseline bandwidths selected above.
+  # TODO(research): contamination_mask is oracle information.
+  - name: eps005_clean_only_centers_observed_bandwidth
+    target:
+      <<: *dataset_base
+      experimental_test_center_scenario: oracle_clean_only
+      experimental_bandwidth_reference: all_observed
+
+  # Decomposition control: same clean-only centers, now with bandwidths selected
+  # from those centers.  This should reproduce the earlier clean-only scenario.
+  # TODO(research): This remains an oracle-only diagnostic cell.
+  - name: eps005_clean_only_centers_own_bandwidth
+    target:
+      <<: *dataset_base
+      experimental_test_center_scenario: oracle_clean_only
+      experimental_bandwidth_reference: test_centers

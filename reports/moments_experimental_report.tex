@@ -1,0 +1,954 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{russian}
+\setotherlanguage{english}
+\setmainfont{PT Serif}
+\setsansfont{Arial}
+\setmonofont{Menlo}
+\newfontfamily\cyrillicfont{PT Serif}
+\newfontfamily\cyrillicfontsf{Arial}
+\newfontfamily\cyrillicfonttt{Menlo}
+
+\usepackage[a4paper,margin=19mm,headheight=14pt]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{xurl}
+
+\definecolor{navy}{HTML}{183153}
+\definecolor{blue}{HTML}{2B6CB0}
+\definecolor{cyan}{HTML}{DDF2F7}
+\definecolor{lightblue}{HTML}{EDF5FC}
+\definecolor{lightgray}{HTML}{F3F4F6}
+\definecolor{midgray}{HTML}{697386}
+\definecolor{green}{HTML}{287A55}
+\definecolor{red}{HTML}{B23A48}
+\definecolor{gold}{HTML}{A66B00}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=navy,
+  urlcolor=blue,
+  citecolor=green,
+  pdfauthor={Codex / GMM research project},
+  pdftitle={Экспериментальный отчёт: dimension-free moment GMM},
+  pdfsubject={Сводный анализ пяти экспериментов}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\sffamily\small Dimension-free moment GMM}
+\rhead{\sffamily\small Экспериментальный отчёт}
+\cfoot{\sffamily\small\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+
+\titleformat{\section}
+  {\Large\sffamily\bfseries\color{navy}}
+  {\thesection}{0.6em}{}
+\titleformat{\subsection}
+  {\large\sffamily\bfseries\color{blue}}
+  {\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}
+  {\normalsize\sffamily\bfseries\color{navy}}
+  {\thesubsubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.5em}{0.65em}
+\titlespacing*{\subsection}{0pt}{1.15em}{0.45em}
+
+\setlist[itemize]{leftmargin=1.3em,itemsep=0.25em,topsep=0.3em}
+\setlist[enumerate]{leftmargin=1.5em,itemsep=0.3em,topsep=0.3em}
+\renewcommand{\arraystretch}{1.16}
+\setlength{\tabcolsep}{4.5pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.48em}
+\emergencystretch=2em
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{R}{>{\raggedleft\arraybackslash}X}
+\newcommand{\code}[1]{{\footnotesize\nolinkurl{#1}}}
+\newcommand{\best}[1]{\textbf{\color{green}#1}}
+\newcommand{\warn}[1]{\textbf{\color{red}#1}}
+\newcommand{\note}[1]{%
+  \begin{center}
+  \colorbox{lightblue}{\parbox{0.94\linewidth}{#1}}
+  \end{center}
+}
+\newcommand{\decision}[1]{%
+  \begin{center}
+  \colorbox{cyan}{\parbox{0.94\linewidth}{%
+    \textbf{\sffamily\color{navy}Решение по результатам.} #1}}
+  \end{center}
+}
+\newcommand{\configlink}[1]{%
+  \code{#1.yaml}}
+\newcommand{\resultslink}[1]{%
+  \code{#1/}}
+\newcommand{\runrefs}[1]{%
+  \small\color{midgray}%
+  Конфиг: \configlink{#1}\enspace|\enspace
+  каталог результатов: \resultslink{#1}.%
+  \normalsize\color{black}}
+
+\begin{document}
+
+\begin{titlepage}
+  \pagecolor{navy}
+  \color{white}
+  \vspace*{24mm}
+  {\sffamily\bfseries\fontsize{30}{35}\selectfont
+    Dimension-free moment GMM\par}
+  \vspace{7mm}
+  {\sffamily\fontsize{19}{24}\selectfont
+    Экспериментальный отчёт\par}
+  \vspace{8mm}
+  {\Large
+    От глобального обзора модели до проверки устойчивости\\
+    к contamination и направленной асимметрии\par}
+
+  \vfill
+  \colorbox{white}{%
+    \parbox{0.86\textwidth}{%
+      \color{navy}\vspace{3mm}
+      \textbf{\sffamily Охват отчёта}\par
+      Пять последовательных экспериментов, 74 сценария данных и пять
+      взаимосвязанных семейств абляций. В отчёте сохранены только
+      интерпретируемые срезы таблиц, но описаны все участвовавшие модели.
+      \vspace{3mm}}}
+  \vfill
+  {\sffamily 30 июля 2026 г.\par}
+  {\small Репозиторий: \code{/Users/boriszhukov/Projects/gmm_clean}\par}
+\end{titlepage}
+\nopagecolor
+
+\tableofcontents
+\clearpage
+
+\section{Краткое резюме}
+
+Цель серии экспериментов --- понять, какие части обобщённой моментной модели
+действительно улучшают оценивание гауссовских смесей, и проверить гипотезу,
+что критерий на локализованных тестовых функциях устойчивее likelihood-based
+методов при малой выборке и misspecification.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}p{0.17\linewidth}Y Y@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Этап} & \textbf{Главный вопрос} & \textbf{Краткий ответ}\\
+\midrule
+Global sweep &
+Какие режимы новой модели вообще жизнеспособны? &
+Стабилизация вокруг KMeans и большое число тестовых центров критичны.
+EM остаётся общим лидером.\\
+Clean robustness &
+Что дают mean penalty, near-mean centers и вторые моменты? &
+Основной вклад даёт mean penalty; near-mean centers полезны как дополнение.
+Усиление вторых моментов улучшает нестабилизированную модель, но не закрывает
+разрыв с EM.\\
+Contamination &
+Устойчив ли метод к тяжёлым хвостам и выбросам? &
+EM лучше по плотности и параметрам в среднем. Moment-метод показывает
+интересное преимущество по ARI на некоторых тяжёлых Student-$t$ сценариях.\\
+Density centers &
+Помогает ли отбрасывать разреженные центры тестовых функций? &
+Иногда --- особенно для Student-$t$ и нестабильной $n_2=3$ модели.
+Универсального улучшения нет; агрессивная фильтрация не оправдана.\\
+Directional skewness &
+Побеждает ли moment-метод EM при асимметричных компонентах? &
+Нет в исследованном режиме. EM выигрывает True KL и восстановление
+компонент; разрыв растёт при малой выборке и неравных весах.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\textbf{Главный содержательный вывод.}
+Собранная модель уже является рабочим оценивателем: в сложных balanced
+сценариях она существенно улучшает KMeans и по ARI приближается к EM.
+Однако имеющиеся данные не подтверждают общее превосходство над EM по
+устойчивости. Наиболее перспективная ниша, которую стоит проверять дальше,
+--- асимметричные тяжёлые хвосты и gross contamination, а не просто
+light-tailed skewness.
+
+\textbf{Практический shortlist моделей.}
+
+\begin{itemize}
+  \item \code{stab_balanced_both} --- основной вариант, когда важны
+        density fit и общая стабильность;
+  \item \code{stab_n3_w025_near} --- наиболее разумный вариант для
+        структурного восстановления компонент;
+  \item \code{stab_n3_w025_both} --- дополнительный вариант для Sliced
+        Wasserstein и проверки трёх вторых направлений;
+  \item \code{em_kmeans_reg1e6} и \code{em_kmeans_reg1e2} ---
+        обязательные likelihood baselines;
+  \item \code{kmeans_spherical} --- контроль качества общей инициализации.
+\end{itemize}
+
+\section{Модель, метрики и правила чтения результатов}
+
+\subsection{Что оптимизирует moment-модель}
+
+Модель сопоставляет наблюдаемые ответы локализованных гауссовских тестовых
+функций с их аналитическим ожиданием под сферической Gaussian mixture.
+В конфигурации можно независимо выбирать количество нулевых, первых и вторых
+моментов, направления второго порядка, веса семейств моментов, стратегию
+работы с bandwidth $s$, геометрическую оптимизацию и ограничения на
+амплитуды.
+
+В окончательной базовой конфигурации используются:
+
+\begin{itemize}
+  \item KMeans-инициализация с десятью рестартами;
+  \item автоматический выбор bandwidth;
+  \item simplex-ограничение на веса смеси;
+  \item совместная оптимизация всех $s$;
+  \item покомпонентная геометрическая оптимизация;
+  \item нормировка loss каждого порядка по числу его тестовых функций.
+\end{itemize}
+
+Два механизма стабилизации имеют разный смысл:
+
+\begin{itemize}
+  \item \textbf{mean penalty} штрафует удаление средних от KMeans-инициализации;
+  \item \textbf{near-mean centers} добавляет тестовые центры около текущих
+        средних и локально усиливает идентификацию компонент.
+\end{itemize}
+
+\subsection{Метрики}
+
+Для первых четырёх экспериментов \textbf{Forward KL} вычисляется относительно
+истинной гауссовской смеси или её moment-matched Gaussian core. В
+contamination-экспериментах это \emph{не} KL между фактическим
+негауссовским распределением наблюдений и найденной моделью.
+
+В directional-skewness эксперименте добавлены:
+
+\begin{itemize}
+  \item \textbf{True Forward KL} --- Monte Carlo оценка
+    $\mathbb E_P[\log p(X)-\log q(X)]$ для точной skewed-плотности;
+  \item \textbf{Held-out NLL} на общей независимой выборке;
+  \item \textbf{Sliced W2} по случайным и истинным skewness-направлениям;
+  \item \textbf{Energy Distance} между обучающей $X$ и выборкой из модели;
+  \item \textbf{Conditional NLL} после сопоставления истинных и найденных
+    компонент.
+\end{itemize}
+
+Остальные метрики:
+
+\begin{itemize}
+  \item \textbf{Weights TV} --- total variation между векторами весов;
+  \item \textbf{Means Error} --- нормированная по масштабу компонент ошибка
+    средних;
+  \item \textbf{Covariance Error} --- аффинно-инвариантная ошибка ковариаций;
+  \item \textbf{ARI} --- permutation-invariant качество кластеризации.
+\end{itemize}
+
+\subsection{Правила агрегации и ограничения}
+
+\begin{itemize}
+  \item Во всех пяти финальных наборах каждая строка имеет \code{ok=1}.
+        Строки с падениями не входят в таблицы.
+  \item В отчёте не анализируется runtime: на этой стадии исследуется качество,
+        а не вычислительный бюджет.
+  \item Средние по разнородным сценариям используются как описательная сводка;
+        основной смысл имеют сравнения внутри сценария и средние ранги.
+  \item Сохранены mean/median/std/IQR, но не индивидуальные paired результаты.
+        Поэтому формальные доверительные интервалы для разности методов
+        восстановить нельзя.
+  \item Три model seeds на одном dataset seed не являются тремя независимыми
+        наборами данных. Стандартные отклонения в CSV нельзя напрямую
+        интерпретировать как стандартную ошибку среднего.
+  \item Выбор ``лучшей moment-модели'' после просмотра результатов является
+        оптимистичным; для подтверждающего эксперимента shortlist должен быть
+        зафиксирован заранее.
+\end{itemize}
+
+\section{Каталог всех участвовавших моделей}
+
+\subsection{Варианты первого global sweep}
+
+\small
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.42\linewidth}
+                         >{\raggedright\arraybackslash}p{0.52\linewidth}@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Имя модели} & \textbf{Изменение относительно базовой moment-конфигурации}\\
+\midrule
+\endfirsthead
+\toprule
+\rowcolor{lightgray}
+\textbf{Имя модели} & \textbf{Изменение относительно базовой moment-конфигурации}\\
+\midrule
+\endhead
+\code{moment_first_only3} & Только три первых направления: $(n_0,n_1,n_2)=(0,3,0)$.\\
+\code{moment_second_only3} & Только три вторых направления: $(0,0,3)$.\\
+\code{moment_zero1_first2} & Нулевой и два первых момента: $(1,2,0)$.\\
+\code{moment_first2_second1} & Два первых и один второй момент: $(0,2,1)$.\\
+\code{moment_zero1_second2} & Нулевой и два вторых момента: $(1,0,2)$.\\
+\code{moment_all_balanced} & База $(1,1,1)$ с равными весами семейств.\\
+\code{moment_all_first_rich} & $(1,3,1)$: больше первых направлений.\\
+\code{moment_all_second_rich} & $(1,1,3)$: больше вторых направлений.\\
+\code{moment_all_cross_second} & $(1,1,1)$, второй момент использует два независимых направления.\\
+\code{moment_all_second_weight025} & База с весом второго семейства $0.25$.\\
+\code{moment_all_second_weight4} & База с весом второго семейства $4.0$.\\
+\code{moment_all_non_negative} & Неотрицательные амплитуды без simplex-связи во время оптимизации.\\
+\code{moment_all_sequential_s} & Последовательная оптимизация по bandwidth $s$.\\
+\code{moment_all_joint_geometry} & Одновременная геометрическая оптимизация всех компонент.\\
+\code{moment_all_centers50_data} & 50 центров, выбранных непосредственно из данных.\\
+\code{moment_all_centers50_noisy_auto} & 50 noisy-data центров; шум выбирается автоматически.\\
+\code{moment_all_centers200_noisy_auto} & То же, но 200 центров.\\
+\code{moment_all_stabilized} & База + near-mean centers с ratio $1.0$ + mean penalty $10^{-3}$.\\
+\code{sklearn_gmm_kmeans} & Сферическая sklearn GMM/EM, KMeans init, \code{reg_covar=1e-6}.\\
+\code{sklearn_kmeans} & Сферический KMeans-контроль с эмпирическими весами и дисперсиями.\\
+\bottomrule
+\end{longtable}
+\normalsize
+
+\subsection{Общий каталог последующих абляций}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.42\linewidth}Y@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Имена} & \textbf{Смысл}\\
+\midrule
+\code{stab_balanced_none}, \code{..._penalty}, \code{..._near},
+\code{..._both} &
+Факториал для $(n_0,n_1,n_2)=(1,1,1)$:
+без стабилизации; только mean penalty; только near-mean centers;
+оба механизма.\\
+\code{second_n1_w010} \ldots \code{second_n5_w050} &
+Полная сетка $n_2\in\{1,3,5\}$ и
+$w_2\in\{0.10,0.25,0.50\}$ при одном нулевом и одном первом моменте.\\
+\code{second_n3_w025} и
+\code{stab_n3_w025_penalty/near/both} &
+Повторный стабилизационный факториал в выбранной точке $n_2=3,w_2=0.25$.\\
+\code{second_n5_w050} &
+Сильная граница second-moment grid, использованная в contamination-тестах.\\
+\code{moment_first_only3} &
+Контроль без нулевых и вторых моментов.\\
+\code{em_kmeans_reg1e6}, \code{em_kmeans_reg1e2} &
+Сферическая EM с KMeans init и регуляризацией ковариации
+$10^{-6}$ или $10^{-2}$.\\
+\code{kmeans_spherical} &
+Инициализационный контроль без последующей EM/moment-оптимизации.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+В clean robustness эксперименте участвовали все четыре balanced-варианта,
+все девять точек second-moment grid, три стабилизированных варианта
+$n_2=3,w_2=0.25$, first-only контроль и три baseline --- всего 20 моделей.
+
+В contamination и directional-skewness экспериментах использован сокращённый
+набор из десяти moment-моделей:
+\code{stab_balanced_none/penalty/near/both},
+\code{second_n3_w025},
+\code{stab_n3_w025_penalty/near/both},
+\code{second_n5_w050},
+\code{moment_first_only3};
+плюс две EM и KMeans --- всего 13.
+
+В density-center эксперименте использованы пять семейств:
+\code{stab_balanced_both}, \code{stab_balanced_penalty},
+\code{stab_balanced_near}, \code{stab_n3_w025_both},
+\code{stab_balanced_none}. Каждое семейство протестировано с
+\code{test_center_fraction} $f\in\{1.0,0.9,0.5,0.3\}$; суффиксы
+\code{f100/f090/f050/f030} однозначно описывают все 20 moment-моделей.
+Дополнительно включены те же три baseline.
+
+\section{Эксперимент 1: глобальный обзор модели}
+
+\runrefs{optimization_moments_global_sweep}
+
+\subsection{Постановка}
+
+Эксперимент охватывает 20 сценариев: решётку
+$d\in\{3,30\}$, $n\in\{60,500\}$ и easy/hard separation;
+стресс по дисперсиям и весам; смеси из пяти компонент; диагональную и полную
+ковариации при сферической оцениваемой модели. Для каждого сценария использовано 10 dataset
+seeds и 2 model seeds. Всего сравнивались 18 moment-вариантов и две sklearn
+модели.
+
+\subsection{Сокращённая таблица результатов}
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Модель} & \textbf{KL} $\downarrow$ & \textbf{TV} $\downarrow$ &
+\textbf{Mean} $\downarrow$ & \textbf{Cov} $\downarrow$ & \textbf{ARI} $\uparrow$\\
+\midrule
+EM & \best{0.325} & \best{0.132} & \best{0.220} & \best{0.203} & \best{0.641}\\
+KMeans & 0.404 & 0.163 & 0.253 & 0.229 & 0.585\\
+all stabilized & 0.391 & 0.159 & 0.240 & 0.209 & 0.600\\
+first only 3 & 0.407 & 0.165 & 0.243 & 0.216 & 0.589\\
+all second rich & 0.517 & 0.163 & 0.261 & 0.226 & 0.592\\
+all balanced & 0.695 & 0.164 & 0.275 & 0.267 & 0.585\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Это средние по всем 20 сценариям; они нужны для общей ориентации, а не для
+формального рейтинга. По среднему внутрисценарному рангу EM также первая,
+\code{moment_all_stabilized} --- лучшая moment-модель.
+
+EM выиграла Forward KL в 13 из 20 сценариев; first-only moment ---
+в четырёх. Stabilized moment уступает EM, но улучшает исходную balanced
+модель по KL на 44\%, по mean error на 13\% и по ARI примерно на 0.016.
+
+\subsection{Что выяснили отдельные абляции}
+
+\begin{itemize}
+  \item \textbf{Стабилизация важнее выбора порядка моментов.}
+        \code{all_stabilized} имеет KL $0.391$ против $0.695$ у
+        \code{all_balanced}.
+  \item \textbf{Первые моменты особенно информативны.}
+        First-only даёт KL $0.407$ и mean error $0.243$.
+  \item \textbf{Дополнительные вторые направления полезнее одного:}
+        second-rich улучшает balanced KL с $0.695$ до $0.517$.
+  \item \textbf{Два независимых second-order направления} дают умеренное
+        улучшение KL ($0.612$), но не меняют общий вывод.
+  \item \textbf{Слишком большой second weight вреден:}
+        $w_2=4$ даёт KL $0.730$, а $w_2=0.25$ --- $0.644$.
+  \item \textbf{Joint geometry нестабилен:} mean error $1.074$ против
+        $0.275$ у покомпонентной оптимизации.
+  \item \textbf{Последовательная оптимизация по $s$ уступает совместной:}
+        KL $0.906$ против $0.695$.
+  \item \textbf{Число центров существенно:} 50 центров дают KL
+        $0.73$--$0.86$, 200 noisy centers --- $0.499$.
+  \item \textbf{Non-negative амплитуды не дают устойчивого преимущества}
+        и теряют прямую связь с нормированной смесью во время оптимизации;
+        simplex остаётся предпочтительным дефолтом.
+\end{itemize}
+
+\decision{Зафиксировать simplex, joint-$s$, component geometry и достаточно
+большое число тестовых центров. Разделить стабилизацию на mean penalty и
+near-mean centers и отдельно исследовать количество/вес вторых моментов.}
+
+\section{Эксперимент 2: clean robustness и moment ablation}
+
+\runrefs{moments_robustness_ablation}
+
+\subsection{Постановка}
+
+18 чистых гауссовских сценариев включают sample-size ladder
+$n\in\{30,60,200,500\}$, dimension stress до $d=60$, стресс по дисперсиям и
+весам, separation ladder, пять компонент, несферические ковариации и easy
+calibration. Использовано 30 dataset seeds и 3 model seeds.
+
+Эксперимент отвечает на два заранее поставленных вопроса:
+
+\begin{enumerate}
+  \item разделить эффекты mean penalty и near-mean centers;
+  \item проверить сетку $n_2\in\{1,3,5\}$,
+        $w_2\in\{0.10,0.25,0.50\}$.
+\end{enumerate}
+
+\subsection{Факториал стабилизации}
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Модель} & \textbf{KL} $\downarrow$ & \textbf{TV} $\downarrow$ &
+\textbf{Mean} $\downarrow$ & \textbf{Cov} $\downarrow$ & \textbf{ARI} $\uparrow$\\
+\midrule
+balanced none & 1.972 & 0.215 & 0.448 & 1.722 & 0.499\\
+balanced penalty & 0.937 & 0.205 & 0.332 & \best{0.674} & 0.557\\
+balanced near & 1.851 & 0.208 & 0.414 & 1.324 & 0.511\\
+balanced both & \best{0.888} & \best{0.204} & \best{0.329} & 0.704 & \best{0.560}\\
+\midrule
+$n_2=3$ none & 1.654 & 0.222 & 0.444 & 1.419 & 0.500\\
+$n_2=3$ penalty & 0.972 & \best{0.212} & 0.333 & \best{0.742} & 0.547\\
+$n_2=3$ near & 1.500 & 0.221 & 0.383 & 1.038 & 0.512\\
+$n_2=3$ both & \best{0.968} & 0.213 & \best{0.331} & 0.773 & \best{0.547}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Mean penalty является главным стабилизирующим фактором. Near-mean centers
+сами по себе улучшают исходную модель гораздо слабее, но вместе со штрафом
+дают небольшое дополнительное улучшение KL, весов, средних и ARI.
+У $n_2=3$ добавление near centers поверх penalty почти нейтрально по ARI.
+
+\subsection{Сетка вторых моментов}
+
+\begin{center}
+\small
+\begin{tabular}{@{}ccrr@{\qquad}ccrr@{}}
+\toprule
+\rowcolor{lightgray}
+$n_2$ & $w_2$ & \textbf{KL} $\downarrow$ & \textbf{ARI} $\uparrow$ &
+$n_2$ & $w_2$ & \textbf{KL} $\downarrow$ & \textbf{ARI} $\uparrow$\\
+\midrule
+1 & 0.10 & 1.830 & 0.481 & 3 & 0.10 & 1.674 & 0.490\\
+1 & 0.25 & 1.886 & 0.488 & 3 & 0.25 & 1.654 & 0.500\\
+1 & 0.50 & 1.926 & 0.494 & 3 & 0.50 & 1.637 & 0.508\\
+\midrule
+5 & 0.10 & 1.578 & 0.496 & 5 & 0.25 & 1.517 & 0.508\\
+5 & 0.50 & \best{1.455} & \best{0.518} & & & &\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+В нестабилизированной сетке больше направлений последовательно улучшает
+результат. При $n_2=3$ и $5$ больший вес второго семейства также полезен.
+Однако даже лучшая точка $n_2=5,w_2=0.5$ заметно хуже стабилизированной
+balanced-модели. Следовательно, вторые моменты содержат полезный сигнал, но
+не заменяют регуляризацию геометрии.
+
+\subsection{Sample-size ladder}
+
+\begin{center}
+\small
+\begin{tabular}{@{}r rr rr@{}}
+\toprule
+\rowcolor{lightgray}
+& \multicolumn{2}{c}{\textbf{EM reg $10^{-2}$}} &
+\multicolumn{2}{c}{\textbf{balanced both}}\\
+\cmidrule(lr){2-3}\cmidrule(l){4-5}
+$n$ & \textbf{KL} $\downarrow$ & \textbf{ARI} $\uparrow$ &
+\textbf{KL} $\downarrow$ & \textbf{ARI} $\uparrow$\\
+\midrule
+30  & \best{1.194} & \best{0.477} & 1.514 & 0.471\\
+60  & \best{0.495} & \best{0.644} & 0.718 & 0.570\\
+200 & \best{0.091} & \best{0.780} & 0.246 & 0.694\\
+500 & \best{0.035} & \best{0.788} & 0.147 & 0.717\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Гипотеза о более мягкой деградации moment-метода при малом $n$ не
+подтвердилась. При $n=30$ методы близки по ARI, но с ростом данных EM
+использует дополнительную информацию значительно эффективнее. Dimension
+stress усиливает этот вывод: при $d=n=60$ EM имеет KL $4.14$ и ARI $0.468$,
+balanced-both --- KL $5.95$ и ARI $0.380$.
+
+При этом moment-оптимизация существенно лучше простого KMeans в большинстве
+сложных сценариев. Это подтверждает, что критерий обучает модель, а не только
+наследует сильную инициализацию.
+
+\decision{Основным вариантом оставить \code{stab_balanced_both}; сохранить
+\code{stab_n3_w025_both/near} как структурные альтернативы. Гипотезу
+превосходства над EM перенести из чистого small-$n$ режима в явное
+misspecification и contamination.}
+
+\section{Эксперимент 3: contamination robustness}
+
+\runrefs{moments_contamination_robustness}
+
+\subsection{Постановка}
+
+12 сценариев образованы четырьмя типами отклонения от Gaussian mixture:
+
+\begin{itemize}
+  \item Student-$t$ компоненты с $\nu\in\{3,5,10\}$;
+  \item component-wise variance contamination;
+  \item diffuse uniform background;
+  \item удалённые radial outliers.
+\end{itemize}
+
+Для каждого сценария использовано 20 dataset seeds и 3 model seeds.
+Parameter metrics и старая Forward KL направлены на чистую Gaussian core.
+Для явных outliers ARI считается только по clean observations; у Student-$t$
+метки определены для всех наблюдений.
+
+\subsection{Средние по типам contamination}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l rr rr@{}}
+\toprule
+\rowcolor{lightgray}
+& \multicolumn{2}{c}{\textbf{EM reg $10^{-2}$}} &
+\multicolumn{2}{c}{\textbf{balanced both}}\\
+\cmidrule(lr){2-3}\cmidrule(l){4-5}
+\textbf{Тип} & \textbf{KL} $\downarrow$ & \textbf{ARI} $\uparrow$ &
+\textbf{KL} $\downarrow$ & \textbf{ARI} $\uparrow$\\
+\midrule
+Radial       & \best{0.491} & \best{0.502} & 0.651 & 0.423\\
+Student-$t$  & \best{0.733} & 0.442 & 1.108 & \best{0.500}\\
+Uniform      & \best{0.722} & \best{0.465} & 1.082 & 0.403\\
+Variance     & \best{0.630} & \best{0.397} & 0.766 & 0.348\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+EM сохраняет преимущество по Gaussian-core density и параметрам почти во
+всех группах. Moment-модель не демонстрирует общей B-robustness: удалённые
+точки всё ещё влияют на выбранные средние и дисперсии через empirical moment
+responses и KMeans init.
+
+Однако Student-$t$ даёт важное исключение: по ARI moment-метод в среднем
+лучше EM. Особенно заметен сценарий $\nu=3$:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Сценарий} & \textbf{Лучший moment ARI} & \textbf{Лучший EM ARI}\\
+\midrule
+Student-$t$, $\nu=10$, $d=10$ & 0.670 & 0.648\\
+Student-$t$, $\nu=3$, $d=10$ & \best{0.533} & 0.342\\
+Student-$t$, $\nu=5$, $d=30$ & 0.309 & \best{0.336}\\
+Radial, 10\%, radius 10--16 & \best{0.129} & 0.079\\
+Uniform, 10\%, padding 8 & \best{0.115} & 0.063\\
+Variance, 10\%, inflation 100 & \best{0.063} & 0.046\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Последние три преимущества достигаются при очень низком абсолютном ARI:
+это скорее более медленное разрушение, чем практически хорошая
+кластеризация. А вот разница на Student-$t$ с $\nu=3$ содержательна и
+поддерживает гипотезу о потенциальном преимуществе bounded/localized
+моментов при тяжёлых хвостах.
+
+Из moment-моделей наиболее устойчив \code{stab_balanced_both}.
+Mean penalty ограничивает уход средних под влиянием выбросов; near centers
+без penalty иногда ухудшают mean error, поскольку текущая геометрия уже могла
+сместиться к contamination. Сырые $n_2=3/5$ варианты не выигрывают.
+
+\decision{Не заявлять общую contamination-robustness. Зафиксировать
+Student-$t$ с малым $\nu$ как главный положительный сигнал. Проверить,
+можно ли уменьшить влияние outliers через выбор только плотных data-centered
+тестовых функций.}
+
+\section{Эксперимент 4: density-based выбор тестовых центров}
+
+\runrefs{moments_density_center_ablation}
+
+\subsection{Постановка}
+
+Для каждой точки данных вычисляется ``видимость''
+$\sum_i K_s(X_i,c)$; центрами тестовых функций становятся только точки из
+верхней доли $f\in\{1.0,0.9,0.5,0.3\}$. Использованы те же 12 contaminated
+сценариев, 8 dataset seeds и 3 model seeds. Пять moment-семейств образуют
+20 вариантов; EM и KMeans сохранены для прямого сравнения.
+
+\subsection{Средний эффект доли центров}
+
+\begin{center}
+\small
+\begin{tabular}{@{}crrrrr@{}}
+\toprule
+\rowcolor{lightgray}
+$f$ & \textbf{KL} $\downarrow$ & \textbf{TV} $\downarrow$ &
+\textbf{Mean} $\downarrow$ & \textbf{Cov} $\downarrow$ & \textbf{ARI} $\uparrow$\\
+\midrule
+1.0 & 1.058 & 0.227 & 2.105 & 1.828 & 0.394\\
+0.9 & \best{0.997} & 0.225 & \best{2.040} & 1.841 & 0.389\\
+0.5 & 0.998 & 0.221 & 2.043 & 1.818 & 0.393\\
+0.3 & 1.010 & \best{0.217} & 2.052 & \best{1.813} & \best{0.395}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Пул по всем семействам показывает умеренное улучшение KL и весов, но не
+монотонный эффект и почти отсутствие выигрыша по ARI. Пул несколько
+искажён тем, что фильтрация сильно спасает отдельные нестабильные семейства.
+
+Для наиболее сильного \code{stab_balanced_both}:
+
+\begin{center}
+\small
+\begin{tabular}{@{}crrrrr@{}}
+\toprule
+\rowcolor{lightgray}
+$f$ & \textbf{KL} $\downarrow$ & \textbf{TV} $\downarrow$ &
+\textbf{Mean} $\downarrow$ & \textbf{Cov} $\downarrow$ & \textbf{ARI} $\uparrow$\\
+\midrule
+1.0 & \best{0.867} & 0.223 & \best{1.732} & 1.862 & 0.414\\
+0.9 & 0.908 & 0.218 & 1.734 & 1.882 & 0.404\\
+0.5 & 0.889 & 0.214 & 1.749 & \best{1.851} & 0.413\\
+0.3 & 0.882 & \best{0.212} & 1.740 & 1.863 & \best{0.414}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Здесь unfiltered $f=1$ сохраняет лучшую KL и mean error. $f=0.3$ улучшает
+веса без потери среднего ARI, но не даёт общего доминирования.
+
+\subsection{Зависимость от типа contamination}
+
+По pooled Forward KL:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Тип} & $f=1.0$ & $f=0.9$ & $f=0.5$ & $f=0.3$\\
+\midrule
+Radial      & \best{0.663} & 0.683 & 0.701 & 0.704\\
+Student-$t$ & 1.586 & \best{1.272} & 1.277 & 1.304\\
+Uniform     & 1.251 & 1.257 & \best{1.226} & 1.245\\
+Variance    & \best{0.731} & 0.776 & 0.790 & 0.788\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Фильтр особенно полезен для Student-$t$: он снижает влияние периферийных
+наблюдений как тестовых центров. Для radial и variance contamination
+удалённые центры, напротив, несут полезную информацию о несогласованности
+модели с данными; их исключение ухудшает KL к clean core в выбранной
+оптимизационной динамике. Для uniform background эффект слаб и неоднозначен.
+
+EM остаётся лидером общего рейтинга; density filtering не создаёт
+преимущества moment-метода над likelihood baselines.
+
+\decision{Не менять дефолт $f=1.0$. Рассматривать $f=0.9$ или $0.5$ как
+специализированную robust-настройку для тяжёлых хвостов; $f=0.3$ слишком
+агрессивен для общего применения. В будущем выбирать $f$ адаптивно по
+распределению density scores, а не фиксированной долей.}
+
+\section{Эксперимент 5: направленная асимметрия компонент}
+
+\runrefs{moments_directional_skewness}
+
+\subsection{Постановка}
+
+Directional-Gamma генератор сохраняет точные истинные средние и ковариации.
+В whitened координатах одна компонента residual заменяется на
+\[
+S=\frac{G-a}{\sqrt a},\qquad G\sim\Gamma(a,1),
+\]
+а остальные направления остаются гауссовскими. При $a=2$ стандартизованная
+skewness равна $2/\sqrt{2}$. Направление длинного хвоста выбирается как:
+
+\begin{itemize}
+  \item \code{random} --- случайное для каждой компоненты;
+  \item \code{toward} --- к барицентру смеси;
+  \item \code{away} --- от барицентра.
+\end{itemize}
+
+Два data regimes (balanced $n=500$ и scarce/moderately imbalanced $n=200$)
+пересечены с separation 3.5/6.0 и тремя направлениями --- всего 12
+сценариев. Использовано 20 dataset seeds, 3 model seeds и независимая
+evaluation sample размера 10\,000.
+
+\subsection{Общий результат}
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Модель} & \textbf{True KL} $\downarrow$ & \textbf{SW2} $\downarrow$ &
+\textbf{TV} $\downarrow$ & \textbf{Mean} $\downarrow$ &
+\textbf{Cov} $\downarrow$ & \textbf{ARI} $\uparrow$\\
+\midrule
+EM reg $10^{-2}$ & \best{0.242} & \best{0.147} & \best{0.035} &
+0.109 & \best{0.049} & \best{0.962}\\
+EM reg $10^{-6}$ & 0.244 & 0.147 & 0.036 &
+\best{0.108} & 0.052 & 0.961\\
+Лучший moment по каждой метрике & 0.283 & 0.153 & 0.050 &
+0.132 & 0.084 & 0.942\\
+KMeans & 0.323 & 0.153 & 0.063 &
+0.140 & 0.144 & 0.928\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+EM reg $10^{-2}$ имеет лучшую mean True KL во всех 12 сценариях.
+EM также выигрывает Conditional NLL в 11 из 12 и почти все parameter
+metrics. Energy Distance практически не различает методы
+($0.1582$--$0.1587$ у лидеров) и остаётся вторичной диагностикой.
+
+\subsection{Взаимодействие sample regime и separation}
+
+Для интерпретации дополнительно вычислена oracle KL Gaussian mixture с
+точными истинными весами, средними и ковариациями. Это не новое обучение, а
+оценка неизбежной ошибки Gaussian approximation.
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Режим} & \textbf{Oracle KL} &
+\textbf{EM KL} & \textbf{$n_2=3$ near KL} &
+\textbf{EM ARI} & \textbf{Moment ARI}\\
+\midrule
+balanced easy & 0.184 & \best{0.216} & 0.221 & 0.993 & 0.993\\
+balanced hard & 0.171 & \best{0.202} & 0.222 & 0.947 & 0.945\\
+scarce easy   & 0.184 & \best{0.277} & 0.326 & 0.987 & 0.962\\
+scarce hard   & 0.173 & \best{0.275} & 0.376 & 0.921 & 0.863\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+При balanced-easy методы почти эквивалентны. Разрыв растёт при overlap и
+особенно при дефиците данных/неравных весах. В scarce-hard estimation excess
+над oracle составляет около $0.10$ для EM и $0.20$ для выбранной
+moment-модели. Предполагаемое преимущество moment-метода в failure tails
+не наблюдается: его variance и разрыв mean--median часто выше.
+
+\subsection{Эффект направления}
+
+В balanced-hard постановке направление работает ожидаемо:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Направление} & \textbf{EM ARI} & \textbf{$n_2=3$ near ARI}\\
+\midrule
+away   & 0.980 & 0.980\\
+random & 0.947 & 0.943\\
+toward & 0.914 & 0.912\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+При \code{toward} компоненты сильнее перекрываются. Одновременно True KL
+становится ниже: marginal density при inward tails легче приблизить смесью,
+даже если latent labels хуже идентифицируются. Это наглядно показывает,
+почему density fit и recovery компонент нельзя сводить к одной метрике.
+
+В scarce-imbalanced режиме \code{away} тоже становится сложным: внешний
+хвост большой компоненты способен сместить оценивание и скрыть малую
+компоненту. Направление взаимодействует с весами, а не задаёт универсальный
+порядок сложности.
+
+\subsection{Статистические вырождения}
+
+Conditional NLL выявила редкие случаи, где \code{ok=1}, median score около
+14, но mean достигает $10^6$--$10^7$. Это соответствует содержательно
+неудачному решению: малая истинная компонента пропущена или сопоставлена с
+почти вырожденной найденной компонентой. Проблема встречается в основном у
+нестабилизированных moment-вариантов. Mean penalty устраняет наиболее
+экстремальные случаи.
+
+\decision{Гипотеза о преимуществе над EM при light-tailed directional
+skewness не подтверждена. Сохранить \code{stab_balanced_both} и
+\code{stab_n3_w025_near}; следующий тест строить как dose-response по силе
+skewness и как skew-$t$, где асимметрия сочетается с тяжёлым хвостом.}
+
+\section{Сквозные выводы о работе метода}
+
+\subsection{Что подтверждено}
+
+\begin{enumerate}
+  \item \textbf{Модель действительно обучается и улучшает KMeans.}
+        В balanced-hard skewness сценариях KMeans имеет KL $0.315$, moment
+        около $0.222$, EM $0.202$; ARI moment почти совпадает с EM.
+  \item \textbf{Simplex --- правильный дефолт.}
+        Он сохраняет интерпретацию реальной смеси и не уступает
+        non-negative варианту систематически.
+  \item \textbf{Component geometry стабильнее joint geometry.}
+        Совместная геометрия слишком чувствительна и даёт крупные ошибки
+        средних.
+  \item \textbf{Mean penalty --- основной стабилизатор.}
+        Он снижает KL, parameter error и частоту статистических вырождений.
+  \item \textbf{Near-mean centers полезны как дополнение.}
+        Они улучшают локальную идентификацию, веса и иногда ARI, но без
+        anchoring могут следовать уже смещённой геометрии.
+  \item \textbf{Вторые моменты полезны, но требуют баланса.}
+        Больше направлений улучшает сырую модель; выигрыш меньше эффекта
+        стабилизации. Умеренный вес $0.25$ остаётся разумным общим выбором.
+  \item \textbf{Много тестовых центров лучше малого фиксированного бюджета.}
+        Это было явно видно уже в global sweep.
+  \item \textbf{Density filtering не является бесплатной robustness.}
+        Реальные хвостовые точки могут нести полезный сигнал; фильтр следует
+        применять только под конкретную contamination model.
+\end{enumerate}
+
+\subsection{Что не подтверждено}
+
+\begin{itemize}
+  \item Нет общего преимущества над EM при малой чистой выборке.
+  \item Нет общего преимущества по Gaussian-core KL при contamination.
+  \item Нет преимущества при направленной Gamma-skewness.
+  \item Увеличение числа вторых моментов само по себе не решает проблемы
+        локальной оптимизации и component stealing.
+  \item Energy Distance на training $X$ недостаточно чувствительна для
+        ранжирования близких моделей.
+\end{itemize}
+
+\subsection{Где остаётся положительная гипотеза}
+
+Наиболее сильный сигнал --- ARI на Student-$t$ с $\nu=3$:
+moment $0.533$ против EM $0.342$. Это согласуется с идеей, что
+локализованные kernel moments могут снижать влияние тяжёлых хвостов.
+Directional Gamma имеет экспоненциальный, а не полиномиальный хвост и не
+проверяет этот механизм в полной мере.
+
+\section{Рекомендуемая следующая программа экспериментов}
+
+\begin{enumerate}
+  \item \textbf{Зафиксировать shortlist} до запуска:
+    \code{stab_balanced_both}, \code{stab_n3_w025_near},
+    \code{stab_n3_w025_both}, две EM и KMeans.
+  \item \textbf{Skewness dose-response:}
+    $\texttt{gamma\_shape}\in\{0.5,1,2,8\}$ плюс Gaussian calibration.
+  \item \textbf{Skew-$t$:} независимо менять degrees of freedom и силу
+    skewness. Это прямой тест наиболее перспективной гипотезы.
+  \item \textbf{Adaptive density filtering:} выбирать центры по квантилям
+    density score только при диагностированном тяжёлом хвосте; сравнить
+    $f=1$, $0.9$, $0.5$ без $0.3$.
+  \item \textbf{Failure diagnostics:} сохранять minimum weight, minimum
+    variance, maximum matching distance и долю Conditional NLL выше порога.
+  \item \textbf{Сохранять raw paired metrics,} включая dataset seed и model
+    seed. Это позволит строить paired bootstrap intervals и разделить
+    вариативность данных от вариативности оптимизации.
+  \item \textbf{Добавить Gaussian oracle строкой в результаты,} чтобы
+    отделять approximation error от estimation error без отдельного
+    постанализа.
+  \item \textbf{Развести две конечные цели:}
+    density approximation оценивать True KL/NLL/SW2, а recovery компонент ---
+    ARI, parameter errors и Conditional NLL. Не объединять их в один score.
+\end{enumerate}
+
+\section{Карта артефактов}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}p{0.25\linewidth}Y Y@{}}
+\toprule
+\rowcolor{lightgray}
+\textbf{Эксперимент} & \textbf{Конфигурация} & \textbf{Результаты}\\
+\midrule
+Global sweep &
+\configlink{optimization_moments_global_sweep} &
+\resultslink{optimization_moments_global_sweep}\\
+Clean robustness &
+\configlink{moments_robustness_ablation} &
+\resultslink{moments_robustness_ablation}\\
+Contamination &
+\configlink{moments_contamination_robustness} &
+\resultslink{moments_contamination_robustness}\\
+Density centers &
+\configlink{moments_density_center_ablation} &
+\resultslink{moments_density_center_ablation}\\
+Directional skewness &
+\configlink{moments_directional_skewness} &
+\resultslink{moments_directional_skewness}\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\vfill
+\begin{center}
+\small\color{midgray}
+Отчёт построен по финальным CSV в каталоге \code{results/}.\\
+Ни один эксперимент при подготовке отчёта не перезапускался.
+\end{center}
+
+\end{document}

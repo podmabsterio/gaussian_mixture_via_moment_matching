@@ -1,0 +1,247 @@
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: moments_separated_variance_uniform_contamination
+save_dir: results
+override: true
+save_data_visualizations: true
+num_visualization_samples: 1
+
+# Paired optimizer comparison on the exact contaminated datasets used by the
+# equal-budget confirmation and radial experiment: dataset seeds 101--160,
+# model seeds 1--3, contamination eps in {2%, 5%, 10%}.  Existing legacy, EM,
+# and KMeans results are references only and are not rerun.
+#
+# Six backbones are retained:
+#   D10 M2 only              strongest robust directional endpoint;
+#   D10 M2 + 1/32 M1        smallest positive M1 contamination path point;
+#   D10 M2 + 1/8 M1         best clean/2% side of that path;
+#   M0/16 + M1              direct no-M2 test of the separated scale update;
+#   M0/16 + M1 + 16 D10 M2 best old zero-containing contaminated model;
+#   0.5 D10 M2 + 0.5 R2    strongest radial-containing model and sole radial row.
+#
+# Directional and radial legacy references are in:
+# results/moments_uniform_background_equal_budget_confirmation/<dataset>/raw.csv
+# and
+# results/moments_radial_second_uniform_contamination/<dataset>/raw.csv.
+# The two zero backbones were selected using the legacy exploratory results in
+# results/moments_uniform_background_loo_ablation/<dataset>/raw.csv; those use
+# dataset seeds 1--20 rather than the current confirmatory seeds 101--160.
+# Compensated radial models are excluded: the previous experiment rejected
+# them statistically and found severe convergence/variance degeneration.
+#
+# 3 datasets x 60 draws x 3 model seeds x 12 new models = 6,480 fits.
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: null
+  num_datasets: 20
+  dataset_seed_start: 101
+  model_seeds_per_dataset: 3
+  save_raw_results: true
+  n_jobs: 8
+  backend: loky
+  batch_size: auto
+
+metrics:
+  - _target_: experiments.metrics.FinalLoss
+  - _target_: experiments.metrics.TrueRelativeObjectiveDrop
+  - _target_: experiments.metrics.OptimizationOuterIterations
+  - _target_: experiments.metrics.OptimizationConverged
+  - _target_: experiments.metrics.GeometryFunctionEvaluations
+  - _target_: experiments.metrics.GeometryMaxEvaluationsRate
+  - _target_: experiments.metrics.GeometryEtaBoundHitRate
+  - _target_: experiments.metrics.GeometryAcceptanceRate
+  - _target_: experiments.metrics.FinalMeanGradientInfinityNorm
+  - _target_: experiments.metrics.FinalLogVarianceGradientInfinityNorm
+  - _target_: experiments.metrics.FormulaVarianceUpdates
+  - _target_: experiments.metrics.FormulaVarianceInvalidUpdateRate
+  - _target_: experiments.metrics.FormulaVarianceQClipRate
+  - _target_: experiments.metrics.FormulaVarianceEtaStepBoundHitRate
+  - _target_: experiments.metrics.JointVarianceSweeps
+  - _target_: experiments.metrics.OuterObjectiveIncreaseRate
+  - _target_: experiments.metrics.MaximumRelativeOuterObjectiveIncrease
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+  - _target_: experiments.metrics.MinimumSelectedBandwidth
+  - _target_: experiments.metrics.MaximumSelectedBandwidth
+  - _target_: experiments.metrics.MinimumEstimatedWeight
+  - _target_: experiments.metrics.EstimatedVarianceRatio
+
+optimizer_base: &optimizer_base
+  _target_: src_np.gmm.MomentGaussianMixtureModel
+  init: kmeans
+  n_init: 10
+  target_neighbor_counts: [17, 133]
+  second_moment_mode: same_direction
+  normalize_moment_losses: true
+  scale_normalize_moments: true
+  leave_one_out: true
+  amplitude_optimization: simplex
+  s_optimization: joint
+  geometry_optimization: component
+  test_center_mode: data
+  n_test_centers: null
+  test_center_fraction: 1.0
+  test_center_noise_std: auto
+  r_tests_near_means: 0.0
+  alpha_std_tests: 0.1
+  mean_penalty_weight: 0.0
+  objective_rtol: 1.0e-5
+  objective_atol: 0.0
+  convergence_patience: 3
+  max_steps: 150
+  geom_sweeps: 1
+  ls_max_nfev: 30
+  active_tol: 1.0e-8
+  eta_step_bound: 0.75
+  m_step_bound: null
+  joint_polish_sweeps: 0
+  joint_polish_max_nfev: null
+  variance_formula_q_bounds: [1.0e-4, 0.9999]
+
+# Exact equal-budget directional test-function stream: even inactive M0/M1
+# families keep their original counts so paired model seeds retain directions.
+second10: &second10
+  <<: *optimizer_base
+  n_zero_moments: 1
+  n_first_moments: 10
+  n_second_moments: 10
+  n_radial_second_moments: 0
+  zero_moment_weight: 0.0
+  first_moment_weight: 0.0
+  second_moment_weight: 1.0
+  radial_second_moment_weight: 0.0
+
+second10_first003125: &second10_first003125
+  <<: *second10
+  first_moment_weight: 0.03125
+
+second10_first0125: &second10_first0125
+  <<: *second10
+  first_moment_weight: 0.125
+
+zero_first3: &zero_first3
+  <<: *optimizer_base
+  # Match the earlier zero-moment exploration, including its D1=3 RNG stream.
+  # D2 directions remain generated at zero weight for exact family ablation.
+  n_zero_moments: 1
+  n_first_moments: 3
+  n_second_moments: 10
+  n_radial_second_moments: 0
+  zero_moment_weight: 0.0625
+  first_moment_weight: 1.0
+  second_moment_weight: 0.0
+  radial_second_moment_weight: 0.0
+
+zero_first3_second10_w16: &zero_first3_second10_w16
+  <<: *zero_first3
+  second_moment_weight: 16.0
+
+second10_w05_radial_w05: &second10_w05_radial_w05
+  <<: *optimizer_base
+  # Match the previous hybrid RNG stream: M1 directions are generated at zero
+  # weight before the ten second-order directions.
+  n_zero_moments: 0
+  n_first_moments: 10
+  n_second_moments: 10
+  n_radial_second_moments: 1
+  zero_moment_weight: 0.0
+  first_moment_weight: 0.0
+  second_moment_weight: 0.5
+  radial_second_moment_weight: 0.5
+  compensated_radial_second_moments: false
+
+models:
+  - model_name: second10_opt_formula
+    target:
+      <<: *second10
+      optimizer_mode: formula_variance
+
+  - model_name: second10_opt_joint_sigma
+    target:
+      <<: *second10
+      optimizer_mode: joint_variance
+
+  - model_name: second10_first003125_opt_formula
+    target:
+      <<: *second10_first003125
+      optimizer_mode: formula_variance
+
+  - model_name: second10_first003125_opt_joint_sigma
+    target:
+      <<: *second10_first003125
+      optimizer_mode: joint_variance
+
+  - model_name: second10_first0125_opt_formula
+    target:
+      <<: *second10_first0125
+      optimizer_mode: formula_variance
+
+  - model_name: second10_first0125_opt_joint_sigma
+    target:
+      <<: *second10_first0125
+      optimizer_mode: joint_variance
+
+  - model_name: zero_first3_opt_formula
+    target:
+      <<: *zero_first3
+      optimizer_mode: formula_variance
+
+  - model_name: zero_first3_opt_joint_sigma
+    target:
+      <<: *zero_first3
+      optimizer_mode: joint_variance
+
+  - model_name: zero_first3_second10_w16_opt_formula
+    target:
+      <<: *zero_first3_second10_w16
+      optimizer_mode: formula_variance
+
+  - model_name: zero_first3_second10_w16_opt_joint_sigma
+    target:
+      <<: *zero_first3_second10_w16
+      optimizer_mode: joint_variance
+
+  - model_name: second10_w05_radial_w05_opt_formula
+    target:
+      <<: *second10_w05_radial_w05
+      optimizer_mode: formula_variance
+
+  - model_name: second10_w05_radial_w05_opt_joint_sigma
+    target:
+      <<: *second10_w05_radial_w05
+      optimizer_mode: joint_variance
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.uniform_background.UniformBackgroundDatasetGenerator
+  n_features: 10
+  n_components: 3
+  n_samples: 200
+  covariance_type: spherical
+  variance_spread: 3.0
+  anisotropy: 1.0
+  means_mode: fixed
+  weights_concentration: 1000000.0
+  min_mahalanobis_distance: 2.0
+  box_padding: 4.0
+
+datasets:
+  - name: uniform_eps002_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.02
+
+  - name: uniform_eps005_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.05
+
+  - name: uniform_eps010_pad4_d10_n200_hard_varspread3
+    target:
+      <<: *dataset_base
+      contamination_fraction: 0.10

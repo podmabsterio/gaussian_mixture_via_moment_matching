@@ -15,12 +15,17 @@ def select_s_values_by_average_kernel_count(
     data_batch_size=4096,
     test_batch_size=None,
     max_block_entries=2_000_000,
+    leave_out_indices=None,
 ):
     """Select Gaussian bandwidths by their average soft neighbor counts.
 
     If targets are omitted, use the three values proposed in ``gmm_last.pdf``:
-    ``n / (2K)``, ``n / (sqrt(2) K)``, and ``n / K``.  Bandwidths are returned
-    in decreasing order by default, ready for coarse-to-fine continuation.
+    ``n / (2K)``, ``n / (sqrt(2) K)``, and ``n / K``.  Under leave-one-out,
+    ``n`` is replaced by the average number of observations available to a test
+    center.  Bandwidths are returned in decreasing order by default, ready for
+    coarse-to-fine continuation.  ``leave_out_indices`` excludes the source
+    observation associated with each data-derived test center from its soft
+    neighbor count.
     """
     data = np.asarray(data, dtype=float)
     if test_centers is None:
@@ -35,18 +40,39 @@ def select_s_values_by_average_kernel_count(
         raise ValueError("test_centers must have shape (J, data.shape[1])")
     if test_centers.shape[0] == 0:
         raise ValueError("test_centers must be non-empty")
+    if leave_out_indices is not None:
+        leave_out_indices = np.asarray(leave_out_indices)
+        if leave_out_indices.shape != (test_centers.shape[0],):
+            raise ValueError("leave_out_indices must have one entry per test center")
+        if not np.issubdtype(leave_out_indices.dtype, np.integer):
+            raise ValueError("leave_out_indices must contain integer sample indices")
+        leave_out_indices = leave_out_indices.astype(np.intp, copy=False)
+        if np.any(leave_out_indices < -1) or np.any(leave_out_indices >= data.shape[0]):
+            raise ValueError(
+                "leave_out_indices entries must be -1 or valid sample indices"
+            )
+        if data.shape[0] < 2 and np.any(leave_out_indices >= 0):
+            raise ValueError("leave-one-out counts require at least two samples")
     if K < 1:
         raise ValueError("n_components must be positive")
     if count_rtol <= 0 or s_rtol <= 0 or max_bisection_steps < 1:
         raise ValueError("tolerances and max_bisection_steps must be positive")
 
     n = data.shape[0]
+    maximum_count = float(n)
+    if leave_out_indices is not None:
+        maximum_count -= np.mean(leave_out_indices >= 0)
+
     use_default_targets = target_neighbor_counts is None or (
         isinstance(target_neighbor_counts, str) and target_neighbor_counts == "auto"
     )
     if use_default_targets:
         targets = np.array(
-            [n / (2.0 * K), n / (np.sqrt(2.0) * K), n / K],
+            [
+                maximum_count / (2.0 * K),
+                maximum_count / (np.sqrt(2.0) * K),
+                maximum_count / K,
+            ],
             dtype=float,
         )
     else:
@@ -54,8 +80,11 @@ def select_s_values_by_average_kernel_count(
 
     if targets.size == 0 or not np.all(np.isfinite(targets)):
         raise ValueError("target_neighbor_counts must contain finite values")
-    if np.any(targets <= 0) or np.any(targets >= n):
-        raise ValueError("each target neighbor count must lie strictly between 0 and n")
+    if np.any(targets <= 0) or np.any(targets >= maximum_count):
+        raise ValueError(
+            "each target neighbor count must lie strictly between 0 and the "
+            "maximum leave-one-out count"
+        )
 
     centered = data - np.mean(data, axis=0, keepdims=True)
     data_scale = np.sqrt(np.mean(np.sum(centered * centered, axis=1)) / data.shape[1])
@@ -73,6 +102,7 @@ def select_s_values_by_average_kernel_count(
                 data_batch_size=data_batch_size,
                 test_batch_size=test_batch_size,
                 max_block_entries=max_block_entries,
+                leave_out_indices=leave_out_indices,
             )
         return cache[s]
 
