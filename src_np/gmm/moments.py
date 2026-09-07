@@ -921,12 +921,14 @@ class MomentGaussianMixtureModel:
         means_reference,
         verbose,
         data,
+        iteration_callback=None,
     ):
         kwargs = self._optimization_kwargs(means_reference, verbose)
         kwargs.update(
             {
                 "amplitudes_init": amplitudes_init,
                 "weights_init": weights_init,
+                "iteration_callback": iteration_callback,
             }
         )
         if self.optimizer_mode == "legacy":
@@ -961,6 +963,7 @@ class MomentGaussianMixtureModel:
         y=None,
         verbose=False,
         Z_callback=None,
+        iteration_callback=None,
         d=None,
         n_samples=None,
         contamination_mask=None,
@@ -1090,6 +1093,24 @@ class MomentGaussianMixtureModel:
             elif self._initial_weights is not None:
                 simplex_weights_init = self._initial_weights.copy()
 
+        progress_iteration = 0
+
+        def callback_for_stage(metadata):
+            if iteration_callback is None:
+                return None
+
+            def forward(snapshot):
+                nonlocal progress_iteration
+                iteration_callback(
+                    snapshot.with_context(
+                        iteration=progress_iteration,
+                        metadata=metadata,
+                    )
+                )
+                progress_iteration += 1
+
+            return forward
+
         if self.s_optimization == "sequential":
             amplitudes_per_s = []
             amplitudes_init = self._amplitudes_from_initial_weights([self.s_values[0]])
@@ -1118,6 +1139,13 @@ class MomentGaussianMixtureModel:
                     means_reference=means_reference,
                     verbose=verbose,
                     data=X,
+                    iteration_callback=callback_for_stage(
+                        {
+                            "bandwidth_index": s_index,
+                            "bandwidth": float(s),
+                            "bandwidth_mode": "sequential",
+                        }
+                    ),
                 )
                 self.means_ = result["means"]
                 self.sigmas_ = result["sigmas"]
@@ -1181,6 +1209,12 @@ class MomentGaussianMixtureModel:
                 means_reference=means_reference,
                 verbose=verbose,
                 data=X,
+                iteration_callback=callback_for_stage(
+                    {
+                        "bandwidths": [float(value) for value in self.s_values],
+                        "bandwidth_mode": "joint",
+                    }
+                ),
             )
             self.means_ = result["means"]
             self.sigmas_ = result["sigmas"]

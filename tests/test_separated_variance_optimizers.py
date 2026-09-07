@@ -32,7 +32,7 @@ def _small_mixture():
     return data, init
 
 
-def _recent_experiment_configuration(data, init, *, optimizer_mode):
+def _recent_experiment_configuration(data, init, *, optimizer_mode, iteration_callback=None):
     return MomentGaussianMixtureModel(
         2,
         s_values=[1.4, 0.75],
@@ -58,7 +58,7 @@ def _recent_experiment_configuration(data, init, *, optimizer_mode):
         objective_rtol=0.0,
         convergence_patience=99,
         random_state=23,
-    ).fit(data)
+    ).fit(data, iteration_callback=iteration_callback)
 
 
 def test_variance_formula_exactly_recovers_component_after_neighbor_subtraction():
@@ -152,6 +152,31 @@ def test_separated_variance_models_fit_recent_experiment_configuration(
         assert np.all(np.diff(objectives) <= 2e-14)
 
 
+@pytest.mark.parametrize("optimizer_mode", ["formula_variance", "joint_variance"])
+def test_separated_variance_modes_report_canonical_iteration_snapshots(
+    optimizer_mode,
+):
+    data, init = _small_mixture()
+    snapshots = []
+    _recent_experiment_configuration(
+        data,
+        init,
+        optimizer_mode=optimizer_mode,
+        iteration_callback=snapshots.append,
+    )
+
+    assert [snapshot.iteration for snapshot in snapshots] == [0, 1, 2, 3]
+    assert snapshots[0].phase == "initialization"
+    assert all(snapshot.parameters.means.shape == (2, 3) for snapshot in snapshots)
+    assert all(
+        snapshot.parameters.covariances.shape == (2, 3, 3)
+        for snapshot in snapshots
+    )
+    assert all(snapshot.parameters.weights.shape == (2,) for snapshot in snapshots)
+    assert snapshots[-1].metadata["bandwidth_mode"] == "joint"
+    assert snapshots[-1].parameters.means.flags.writeable is False
+
+
 def test_explicit_legacy_mode_is_identical_to_unchanged_default_optimizer():
     data, init = _small_mixture()
     common = {
@@ -180,6 +205,11 @@ def test_explicit_legacy_mode_is_identical_to_unchanged_default_optimizer():
         **common,
         optimizer_mode="legacy",
     ).fit(data)
+    snapshots = []
+    observed = MomentGaussianMixtureModel(**common).fit(
+        data,
+        iteration_callback=snapshots.append,
+    )
 
     np.testing.assert_array_equal(default.test_directions_, explicit.test_directions_)
     np.testing.assert_allclose(default.means_, explicit.means_, rtol=0.0, atol=0.0)
@@ -194,6 +224,43 @@ def test_explicit_legacy_mode_is_identical_to_unchanged_default_optimizer():
         rtol=0.0,
         atol=0.0,
     )
+    np.testing.assert_allclose(default.means_, observed.means_, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(default.sigmas_, observed.sigmas_, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(default.weights_, observed.weights_, rtol=0.0, atol=0.0)
+    assert [snapshot.iteration for snapshot in snapshots] == [0, 1, 2]
+
+
+def test_sequential_bandwidth_callbacks_form_one_ordered_timeline():
+    data, init = _small_mixture()
+    snapshots = []
+    MomentGaussianMixtureModel(
+        2,
+        s_values=[1.4, 0.75],
+        init=init,
+        n_zero_moments=1,
+        n_first_moments=0,
+        n_second_moments=0,
+        amplitude_optimization="simplex",
+        s_optimization="sequential",
+        max_steps=1,
+        objective_rtol=0.0,
+        convergence_patience=99,
+        random_state=29,
+    ).fit(data, iteration_callback=snapshots.append)
+
+    assert [snapshot.iteration for snapshot in snapshots] == [0, 1, 2, 3]
+    assert [snapshot.metadata["bandwidth_index"] for snapshot in snapshots] == [
+        0,
+        0,
+        1,
+        1,
+    ]
+    assert [snapshot.phase for snapshot in snapshots] == [
+        "initialization",
+        "optimization",
+        "initialization",
+        "optimization",
+    ]
 
 
 @pytest.mark.parametrize(

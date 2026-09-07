@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "parameter_sets": {
+    "gaussian_mixture": [
+      {"key": "n_features", "display_name": "Dimensions", "description": "Number of observed features.", "type": "integer", "default": 10, "minimum": 1, "maximum": 500},
+      {"key": "n_components", "display_name": "Components", "description": "Mixture component count, also injected into the model by the runner.", "type": "integer", "default": 3, "minimum": 1, "maximum": 50},
+      {"key": "n_samples", "display_name": "Sample size", "description": "Observations in every generated dataset.", "type": "integer", "default": 500, "minimum": 20, "maximum": 100000, "step": 10},
+      {"key": "covariance_type", "display_name": "Covariance structure", "description": "Shape of component covariance matrices.", "type": "enum", "default": "spherical", "options": [{"value": "spherical", "display_name": "Spherical"}, {"value": "diag", "display_name": "Diagonal"}, {"value": "full", "display_name": "Full"}, {"value": "tied", "display_name": "Tied full"}]},
+      {"key": "variance_spread", "display_name": "Variance spread", "description": "Component-to-component variance heterogeneity.", "type": "number", "default": 1.5, "minimum": 1.0, "maximum": 100.0, "step": 0.1},
+      {"key": "anisotropy", "display_name": "Anisotropy", "description": "Within-component eigenvalue spread.", "type": "number", "default": 1.0, "minimum": 1.0, "maximum": 100.0, "step": 0.1},
+      {"key": "means_mode", "display_name": "Mean placement", "description": "Fixed simplex or random normal centers.", "type": "enum", "default": "fixed", "options": [{"value": "fixed", "display_name": "Fixed simplex"}, {"value": "normal", "display_name": "Random normal"}]},
+      {"key": "weights_concentration", "display_name": "Weight concentration", "description": "Dirichlet concentration controlling weight balance.", "type": "number", "default": 10.0, "exclusive_minimum": 0.0, "maximum": 1000000.0, "step": 0.5},
+      {"key": "min_mahalanobis_distance", "display_name": "Minimum separation", "description": "Minimum pairwise Mahalanobis distance; empty disables calibration.", "type": "number", "default": 4.0, "nullable": true, "exclusive_minimum": 0.0, "maximum": 100.0, "step": 0.25}
+    ]
+  },
+  "datasets": [
+    {
+      "id": "gaussian",
+      "display_name": "Gaussian mixture",
+      "description": "Clean finite Gaussian mixture with configurable covariance geometry and separation.",
+      "target": "experiments.synthetic_data.gaussian.GaussianDatasetGenerator",
+      "default_instance_name": "gaussian",
+      "parameter_sets": ["gaussian_mixture"],
+      "parameters": []
+    },
+    {
+      "id": "uniform_background",
+      "display_name": "Uniform-background contamination",
+      "description": "Gaussian mixture contaminated by diffuse observations from a padded bounding box.",
+      "target": "experiments.synthetic_data.uniform_background.UniformBackgroundDatasetGenerator",
+      "default_instance_name": "uniform_background",
+      "parameter_sets": ["gaussian_mixture"],
+      "parameters": [
+        {"key": "contamination_fraction", "display_name": "Contamination fraction", "description": "Fraction replaced by uniform background points.", "type": "number", "default": 0.05, "minimum": 0.0, "exclusive_maximum": 1.0, "step": 0.01},
+        {"key": "box_padding", "display_name": "Background padding", "description": "Padding around the clean mixture bounding box.", "type": "number", "default": 4.0, "exclusive_minimum": 0.0, "maximum": 100.0, "step": 0.5, "advanced": true}
+      ]
+    },
+    {
+      "id": "radial_outliers",
+      "display_name": "Radial outliers",
+      "description": "Gaussian mixture contaminated by remote observations in a radial shell.",
+      "target": "experiments.synthetic_data.radial_outliers.RadialOutlierDatasetGenerator",
+      "default_instance_name": "radial_outliers",
+      "parameter_sets": ["gaussian_mixture"],
+      "parameters": [
+        {"key": "contamination_fraction", "display_name": "Contamination fraction", "description": "Fraction replaced by radial outliers.", "type": "number", "default": 0.05, "minimum": 0.0, "exclusive_maximum": 1.0, "step": 0.01},
+        {"key": "min_radius_scale", "display_name": "Minimum radius scale", "description": "Inner radius of the outlier shell.", "type": "number", "default": 6.0, "exclusive_minimum": 0.0, "step": 0.5, "advanced": true},
+        {"key": "max_radius_scale", "display_name": "Maximum radius scale", "description": "Outer radius of the outlier shell.", "type": "number", "default": 10.0, "exclusive_minimum": 0.0, "step": 0.5, "advanced": true}
+      ]
+    },
+    {
+      "id": "variance_contamination",
+      "display_name": "Variance contamination",
+      "description": "Component-wise Gaussian scale contamination.",
+      "target": "experiments.synthetic_data.variance_contamination.VarianceContaminationDatasetGenerator",
+      "default_instance_name": "variance_contamination",
+      "parameter_sets": ["gaussian_mixture"],
+      "parameters": [
+        {"key": "contamination_fraction", "display_name": "Contamination fraction", "description": "Fraction drawn from inflated component covariances.", "type": "number", "default": 0.05, "minimum": 0.0, "exclusive_maximum": 1.0, "step": 0.01},
+        {"key": "variance_inflation", "display_name": "Variance inflation", "description": "Covariance multiplier for contaminated observations.", "type": "number", "default": 25.0, "exclusive_minimum": 1.0, "maximum": 10000.0, "step": 1.0, "advanced": true}
+      ]
+    },
+    {
+      "id": "student_t",
+      "display_name": "Student-t mixture",
+      "description": "Heavy-tailed elliptical Student-t components matched to Gaussian moments.",
+      "target": "experiments.synthetic_data.student_t.StudentTDatasetGenerator",
+      "default_instance_name": "student_t",
+      "parameter_sets": ["gaussian_mixture"],
+      "parameters": [
+        {"key": "degrees_of_freedom", "display_name": "Degrees of freedom", "description": "Values near two produce heavier tails.", "type": "number", "default": 5.0, "exclusive_minimum": 2.0, "maximum": 1000.0, "step": 0.5}
+      ]
+    },
+    {
+      "id": "directional_gamma",
+      "display_name": "Directional Gamma mixture",
+      "description": "Asymmetric components with controlled directional skewness.",
+      "target": "experiments.synthetic_data.directional_gamma.DirectionalGammaDatasetGenerator",
+      "default_instance_name": "directional_gamma",
+      "parameter_sets": ["gaussian_mixture"],
+      "parameters": [
+        {"key": "gamma_shape", "display_name": "Gamma shape", "description": "Smaller values create stronger asymmetry.", "type": "number", "default": 2.0, "exclusive_minimum": 0.0, "maximum": 1000.0, "step": 0.25},
+        {"key": "skewness_direction", "display_name": "Skewness direction", "description": "Direction of each component's long tail.", "type": "enum", "default": "random", "options": [{"value": "random", "display_name": "Random"}, {"value": "toward", "display_name": "Toward mixture center"}, {"value": "away", "display_name": "Away from mixture center"}]},
+        {"key": "evaluation_num_samples", "display_name": "Evaluation sample size", "description": "Independent sample used by distributional metrics.", "type": "integer", "default": 10000, "minimum": 2, "maximum": 1000000, "advanced": true}
+      ]
+    }
+  ]
+}

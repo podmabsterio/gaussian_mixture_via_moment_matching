@@ -1,0 +1,16 @@
+# Numerical stack
+numpy>=1.24
+scipy>=1.10
+scikit-learn>=1.3
+pandas>=2.0
+
+# Experiment runner and configuration
+hydra-core>=1.3,<1.4
+omegaconf>=2.3,<3
+joblib>=1.3
+threadpoolctl>=3.1
+tqdm>=4.65
+
+# UI and saved visualizations
+Flask>=3.0,<4
+matplotlib>=3.7

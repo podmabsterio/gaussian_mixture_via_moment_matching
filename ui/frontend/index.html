@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GMM Experiment Studio</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">G</div>
+      <div>
+        <h1>GMM Experiment Studio</h1>
+        <p>Configure, run, and inspect moment-based mixture experiments</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span id="runningCount" class="running-count">No active runs</span>
+      <button id="advancedToggle" class="advanced-toggle" type="button" aria-pressed="false">
+        <span class="toggle-dot"></span>
+        Advanced
+      </button>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <nav class="tabs" aria-label="Dashboard sections">
+      <button class="tab active" data-tab="experiment" type="button">Experiment</button>
+      <button class="tab" data-tab="quick" type="button">Quick experiment</button>
+      <button class="tab" data-tab="results" type="button">Results</button>
+      <button class="tab" data-tab="compare" type="button">Compare</button>
+    </nav>
+
+    <section id="panel-experiment" class="panel active">
+      <div class="intro-row">
+        <div>
+          <span class="eyebrow">New experiment</span>
+          <h2>Build a reproducible run</h2>
+          <p>Choose a dataset, tune the estimator, and let the backend compile a validated Hydra configuration.</p>
+        </div>
+        <div id="workloadBadge" class="workload-badge">
+          <strong>—</strong>
+          <span>model fits</span>
+        </div>
+      </div>
+
+      <div class="configuration-stack">
+        <article class="config-card" data-accent="dataset">
+          <div class="card-heading">
+            <div class="step-number">01</div>
+            <div>
+              <span class="eyebrow">Data source</span>
+              <h3>Dataset</h3>
+            </div>
+          </div>
+          <div class="entity-selector-row">
+            <div class="field wide">
+              <label for="datasetSelect">Dataset generator</label>
+              <select id="datasetSelect"></select>
+            </div>
+            <div class="field">
+              <label for="datasetInstanceName">Instance name</label>
+              <input id="datasetInstanceName" type="text" maxlength="80">
+            </div>
+          </div>
+          <div id="datasetDescription" class="entity-description"></div>
+          <div id="datasetParameters" class="parameter-grid"></div>
+        </article>
+
+        <article class="config-card" data-accent="model">
+          <div class="card-heading">
+            <div class="step-number">02</div>
+            <div>
+              <span class="eyebrow">Estimator</span>
+              <h3>Model</h3>
+            </div>
+          </div>
+          <div class="entity-selector-row">
+            <div class="field wide">
+              <label for="modelSelect">Model</label>
+              <select id="modelSelect"></select>
+            </div>
+            <div class="field">
+              <label for="modelInstanceName">Instance name</label>
+              <input id="modelInstanceName" type="text" maxlength="80">
+            </div>
+          </div>
+          <div id="modelDescription" class="entity-description"></div>
+          <div id="modelParameters" class="parameter-grid"></div>
+        </article>
+
+        <article class="config-card" data-accent="execution">
+          <div class="card-heading">
+            <div class="step-number">03</div>
+            <div>
+              <span class="eyebrow">Resources &amp; output</span>
+              <h3>Execution</h3>
+            </div>
+          </div>
+          <div id="executionParameters" class="parameter-grid"></div>
+        </article>
+      </div>
+
+      <div class="run-bar">
+        <div>
+          <strong>Ready to compile</strong>
+          <span>Preview one generated sample, or run the full experiment.</span>
+        </div>
+        <div class="run-actions">
+          <button id="previewButton" class="preview-button" type="button">
+            <span>Preview data</span>
+          </button>
+          <button id="runButton" class="primary-button" type="button">
+            <span>Run experiment</span>
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </div>
+
+      <article id="dataPreview" class="preview-card" hidden>
+        <div class="preview-heading">
+          <div>
+            <span class="eyebrow">Generated on the backend</span>
+            <h3 id="previewTitle">Data preview</h3>
+          </div>
+          <span id="previewSeed" class="preview-seed"></span>
+        </div>
+        <div id="previewMeta" class="preview-meta"></div>
+        <div class="preview-canvas-wrap">
+          <canvas id="previewCanvas" role="img" aria-label="PCA projection of the generated dataset"></canvas>
+        </div>
+        <div id="previewLegend" class="preview-legend"></div>
+        <p class="preview-note">Crosses are true component centers. Outlines show one standard deviation after projection.</p>
+      </article>
+
+      <article id="liveRun" class="live-card" hidden>
+        <div class="live-heading">
+          <div>
+            <span class="eyebrow">Current run</span>
+            <h3 id="liveRunName">Experiment</h3>
+          </div>
+          <div class="live-actions">
+            <span id="liveStatus" class="status-pill status-starting">starting</span>
+            <button id="cancelButton" class="text-button danger" type="button">Cancel</button>
+          </div>
+        </div>
+        <div class="run-meta" id="liveMeta"></div>
+        <pre id="liveLog" class="log-view">Waiting for worker output…</pre>
+      </article>
+    </section>
+
+    <section id="panel-quick" class="panel">
+      <div class="section-heading quick-section-heading">
+        <div>
+          <span class="eyebrow">Single-run workbench</span>
+          <h2>Quick experiment</h2>
+          <p>Watch one fit evolve iteration by iteration, then inspect its final metrics and projected geometry.</p>
+        </div>
+      </div>
+
+      <div class="quick-layout">
+        <aside class="quick-settings">
+          <article class="config-card compact-config-card" data-accent="dataset">
+            <div class="card-heading">
+              <div class="step-number">01</div>
+              <div><span class="eyebrow">Data source</span><h3>Dataset</h3></div>
+            </div>
+            <div class="quick-selector-stack">
+              <div class="field"><label for="quickDatasetSelect">Dataset generator</label><select id="quickDatasetSelect"></select></div>
+              <div class="field"><label for="quickDatasetInstanceName">Instance name</label><input id="quickDatasetInstanceName" type="text" maxlength="80"></div>
+            </div>
+            <div id="quickDatasetDescription" class="entity-description"></div>
+            <div id="quickDatasetParameters" class="parameter-grid quick-parameter-grid"></div>
+          </article>
+
+          <article class="config-card compact-config-card" data-accent="model">
+            <div class="card-heading">
+              <div class="step-number">02</div>
+              <div><span class="eyebrow">Estimator</span><h3>Model</h3></div>
+            </div>
+            <div class="quick-selector-stack">
+              <div class="field"><label for="quickModelSelect">Model</label><select id="quickModelSelect"></select></div>
+              <div class="field"><label for="quickModelInstanceName">Instance name</label><input id="quickModelInstanceName" type="text" maxlength="80"></div>
+            </div>
+            <div id="quickModelDescription" class="entity-description"></div>
+            <div id="quickModelParameters" class="parameter-grid quick-parameter-grid"></div>
+          </article>
+
+          <article class="config-card compact-config-card" data-accent="execution">
+            <div class="card-heading">
+              <div class="step-number">03</div>
+              <div><span class="eyebrow">Reproducibility</span><h3>Execution</h3></div>
+            </div>
+            <div id="quickExecutionParameters" class="parameter-grid quick-parameter-grid"></div>
+          </article>
+
+          <div class="quick-run-bar">
+            <div><strong>One dataset · one fit</strong><span>Metrics come from the JSON declaration.</span></div>
+            <button id="quickRunButton" class="primary-button" type="button"><span>Run quick experiment</span><span aria-hidden="true">→</span></button>
+          </div>
+        </aside>
+
+        <div class="quick-workspace">
+          <div id="quickEmpty" class="quick-empty">
+            <div class="quick-empty-mark">↗</div>
+            <h3>Your run will unfold here</h3>
+            <p>Loss, declared metrics, and estimated mixture geometry will update after each optimizer iteration.</p>
+          </div>
+
+          <div id="quickDashboard" class="quick-dashboard" hidden>
+            <article class="quick-status-card">
+              <div>
+                <span class="eyebrow">Observed fit</span>
+                <h3 id="quickRunTitle">Quick experiment</h3>
+                <p id="quickRunMeta">Preparing dataset…</p>
+              </div>
+              <div class="quick-status-actions">
+                <span id="quickStatus" class="status-pill status-starting">starting</span>
+                <button id="quickLatestButton" class="secondary-button" type="button" hidden>Follow latest</button>
+                <button id="quickSaveButton" class="secondary-button" type="button" hidden>Save to results</button>
+                <button id="quickCancelButton" class="text-button danger" type="button">Cancel</button>
+              </div>
+            </article>
+
+            <div id="quickError" class="quick-error" hidden></div>
+
+            <div class="quick-chart-grid">
+              <article class="quick-panel-card quick-loss-card">
+                <div class="quick-card-heading">
+                  <div><span class="eyebrow">Objective</span><h3>Loss by iteration</h3></div>
+                  <strong id="quickLossValue">—</strong>
+                </div>
+                <div class="line-chart-wrap"><canvas id="quickLossCanvas" aria-label="Loss by optimizer iteration"></canvas></div>
+              </article>
+
+              <article class="quick-panel-card quick-pca-card">
+                <div class="quick-card-heading">
+                  <div><span class="eyebrow">Shared PCA basis</span><h3>Data and mixture geometry</h3></div>
+                  <span id="quickPcaMeta" class="muted">Waiting for data…</span>
+                </div>
+                <div class="quick-pca-wrap"><canvas id="quickPcaCanvas" aria-label="PCA projection with true and estimated mixture geometry"></canvas></div>
+                <div class="quick-geometry-legend">
+                  <span><i class="legend-line true-line"></i>True center and 1σ</span>
+                  <span><i class="legend-line estimated-line"></i>Estimated center and 1σ</span>
+                </div>
+                <div class="iteration-scrubber">
+                  <label for="quickIterationSlider">Iteration</label>
+                  <input id="quickIterationSlider" type="range" min="0" max="0" value="0" disabled>
+                  <strong id="quickIterationLabel">Waiting…</strong>
+                </div>
+              </article>
+            </div>
+
+            <article class="quick-panel-card">
+              <div class="quick-card-heading">
+                <div><span class="eyebrow">Declared metrics</span><h3>Metrics by iteration</h3></div>
+                <span class="muted">Missing evaluations are left as gaps</span>
+              </div>
+              <div id="quickMetricCharts" class="quick-metric-charts"></div>
+            </article>
+
+            <article id="quickFinalCard" class="quick-panel-card" hidden>
+              <div class="quick-card-heading">
+                <div><span class="eyebrow">Completed fit</span><h3>Final metrics</h3></div>
+                <span id="quickFitTime" class="muted"></span>
+              </div>
+              <div id="quickFinalMetrics" class="quick-final-metrics"></div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-results" class="panel">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Run history</span>
+          <h2>Results</h2>
+          <p>Saved runs discovered in the results directory, together with active runs from this server session.</p>
+        </div>
+        <button id="refreshResults" class="secondary-button" type="button">Refresh</button>
+      </div>
+      <div class="table-card">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Run</th><th>Status</th><th>Dataset</th><th>Model</th><th>Started / saved</th><th>Duration</th><th></th></tr></thead>
+            <tbody id="runsTable"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="resultDetails" class="result-details" hidden></div>
+    </section>
+
+    <section id="panel-compare" class="panel">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Persisted result catalog</span>
+          <h2>Compare metrics</h2>
+          <p>Compare every saved result, or narrow the catalog by run, dataset, and model.</p>
+        </div>
+        <div class="compare-heading-actions">
+          <div class="statistic-toggle" role="group" aria-label="Summary statistic">
+            <button type="button" data-statistic="mean_std" aria-pressed="true">Mean ± std</button>
+            <button type="button" data-statistic="median_iqr" aria-pressed="false">Median · IQR</button>
+          </div>
+          <button id="refreshComparison" class="secondary-button" type="button">Reload results</button>
+        </div>
+      </div>
+      <div class="compare-card">
+        <div class="compare-controls">
+          <div class="field"><label for="compareRun">Run</label><select id="compareRun"></select></div>
+          <div class="field"><label for="compareDataset">Dataset</label><select id="compareDataset"></select></div>
+          <div class="field"><label for="compareModel">Model</label><select id="compareModel"></select></div>
+          <div class="field">
+            <label for="compareGroupBy">Aggregate by</label>
+            <select id="compareGroupBy">
+              <option value="model">Model name</option>
+              <option value="dataset">Dataset name</option>
+              <option value="run">Run name</option>
+            </select>
+          </div>
+        </div>
+        <div id="compareSummary" class="compare-summary">Loading saved results…</div>
+        <div id="compareEmpty" class="empty-state" hidden>No stored rows match these filters.</div>
+        <div id="compareMetrics" class="metric-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

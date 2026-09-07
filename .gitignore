@@ -107,6 +107,7 @@ saved/
 results/
 outputs/
 local_tests/
+.ui_runtime/
 
 # editor, os cache directory
 .vscode/

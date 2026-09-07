@@ -22,9 +22,9 @@ class Evaluator:
 
         labels = predict_gm_labels(
             X,
-            estimated["means"],
-            estimated["weights"],
-            estimated["covariances"],
+            means,
+            weights,
+            covariances,
         )
 
         return {

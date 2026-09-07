@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "fixed_config": {
+    "runner": {
+      "_target_": "experiments.runners.data_parallel_runner.DataParallelRunner",
+      "_recursive_": false
+    },
+    "aggregators": [
+      {"_target_": "experiments.metrics.aggregators.MeanAggregator"},
+      {"_target_": "experiments.metrics.aggregators.StdAggregator"},
+      {"_target_": "experiments.metrics.aggregators.MedianAggregator"},
+      {"_target_": "experiments.metrics.aggregators.IQRAggregator"}
+    ]
+  },
+  "metrics": [
+    {"id": "forward_kl", "target": "experiments.metrics.ForwardKL", "display_name": "Forward KL", "description": "Estimated divergence from the true data distribution; lower is better.", "direction": "minimize", "format": ".5g", "track_during_fit": true},
+    {"id": "weights_tv", "target": "experiments.metrics.WeightsTV", "display_name": "Weights TV", "description": "Total variation distance between true and estimated mixture weights.", "direction": "minimize", "format": ".5g", "track_during_fit": true},
+    {"id": "means_error", "target": "experiments.metrics.MeansNormalizedError", "display_name": "Means error", "description": "Covariance-normalized error of the estimated component centers.", "direction": "minimize", "format": ".5g", "track_during_fit": true},
+    {"id": "covariance_error", "target": "experiments.metrics.CovariancesAffineInvariantError", "display_name": "Covariance error", "description": "Affine-invariant discrepancy between true and estimated covariances.", "direction": "minimize", "format": ".5g", "track_during_fit": true},
+    {"id": "ari", "target": "experiments.metrics.AdjustedRandIndex", "display_name": "Adjusted Rand index", "description": "Agreement between true and predicted assignments, corrected for chance.", "direction": "maximize", "format": ".5g", "track_during_fit": true},
+    {"id": "macro_f1", "target": "experiments.metrics.MacroF1", "display_name": "Macro F1", "description": "Unweighted mean of per-component assignment F1 scores.", "direction": "maximize", "format": ".5g", "track_during_fit": true}
+  ],
+  "parameters": [
+    {"key": "run_name", "path": "run_name", "display_name": "Run name", "description": "Optional filesystem-safe name; empty creates a timestamped name.", "type": "string", "default": "", "maximum_length": 80},
+    {"key": "save_result", "scope": "manager", "display_name": "Keep result", "description": "Save the completed run under the project results directory.", "type": "boolean", "default": true},
+    {"key": "save_dir", "path": "save_dir", "display_name": "Results directory", "description": "Project-relative persistent output directory.", "type": "string", "default": "results", "hidden": true},
+    {"key": "override", "path": "override", "display_name": "Replace existing run", "description": "Permit removal and recreation of an existing run directory.", "type": "boolean", "default": false, "advanced": true},
+    {"key": "num_datasets", "path": "runner.num_datasets", "display_name": "Dataset realizations", "description": "Independent generated datasets per selected declaration.", "type": "integer", "default": 5, "minimum": 1, "maximum": 100000},
+    {"key": "model_seeds_per_dataset", "path": "runner.model_seeds_per_dataset", "display_name": "Model seeds per dataset", "description": "Independent model initializations fitted to each dataset.", "type": "integer", "default": 2, "minimum": 1, "maximum": 10000},
+    {"key": "n_jobs", "path": "runner.n_jobs", "display_name": "Parallel jobs", "description": "Dataset realizations processed concurrently by Joblib.", "type": "integer", "default": 1, "minimum": 1, "maximum": 64},
+    {"key": "threads_limit", "path": "runner.threads_limit", "display_name": "Threads per job", "description": "BLAS/OpenMP thread limit; empty keeps the runtime default.", "type": "integer", "default": 1, "nullable": true, "minimum": 1, "maximum": 256, "advanced": true},
+    {"key": "backend", "path": "runner.backend", "display_name": "Parallel backend", "description": "Joblib execution backend.", "type": "enum", "default": "loky", "options": [{"value": "loky", "display_name": "Loky processes"}, {"value": "threading", "display_name": "Threads"}], "advanced": true},
+    {"key": "batch_size", "path": "runner.batch_size", "display_name": "Job batch size", "description": "Automatic Joblib scheduling.", "type": "string", "default": "auto", "hidden": true},
+    {"key": "dataset_seed_start", "path": "runner.dataset_seed_start", "display_name": "First dataset seed", "description": "Seed assigned to the first dataset realization.", "type": "integer", "default": 1, "minimum": 0, "maximum": 2147483647, "advanced": true},
+    {"key": "init_models_with_oracle_n_components", "path": "runner.init_models_with_oracle_n_components", "display_name": "Use dataset component count", "description": "Inject the dataset's true component count into the model.", "type": "boolean", "default": true, "hidden": true},
+    {"key": "save_raw_results", "path": "runner.save_raw_results", "display_name": "Save raw repetitions", "description": "Store per-seed metrics alongside aggregates.", "type": "boolean", "default": false, "advanced": true},
+    {"key": "save_data_visualizations", "path": "save_data_visualizations", "display_name": "Save dataset projections", "description": "Generate 2D PCA projection figures before fitting.", "type": "boolean", "default": false, "advanced": true},
+    {"key": "num_visualization_samples", "path": "num_visualization_samples", "display_name": "Visualization samples", "description": "Dataset realizations included in saved projections.", "type": "integer", "default": 0, "minimum": 0, "maximum": 1000, "advanced": true}
+  ],
+  "quick_parameters": [
+    {"key": "run_name", "display_name": "Run name", "description": "Optional name used if this quick run is saved to results.", "type": "string", "default": "", "maximum_length": 80},
+    {"key": "dataset_seed", "display_name": "Dataset seed", "description": "Seed used to generate this single dataset realization.", "type": "integer", "default": 1, "minimum": 0, "maximum": 2147483647},
+    {"key": "model_seed", "display_name": "Model seed", "description": "Seed used for model initialization and randomized probes.", "type": "integer", "default": 1, "minimum": 0, "maximum": 2147483647},
+    {"key": "metric_interval", "display_name": "Metric interval", "description": "Evaluate live metrics every N reported optimizer states; loss and geometry are always retained.", "type": "integer", "default": 1, "minimum": 1, "maximum": 100, "advanced": true},
+    {"key": "threads_limit", "display_name": "Thread limit", "description": "Maximum BLAS/OpenMP threads used by this run.", "type": "integer", "default": 1, "minimum": 1, "maximum": 256, "advanced": true}
+  ]
+}

@@ -4,6 +4,8 @@ from collections.abc import Mapping
 import numpy as np
 from scipy.optimize import least_squares, minimize, nnls
 
+from src_np.iteration import IterationSnapshot, MixtureParameters
+
 from .utils import (
     MIN_SIGMA,
     RADIAL_SECOND_MOMENT,
@@ -151,6 +153,7 @@ def fit_dimension_free_moment_gmm(
     amplitude_optimization="non_negative",
     geometry_optimization="component",
     verbose=False,
+    iteration_callback=None,
 ):
     """Fit arbitrary zeroth-, first-, and second-order moment blocks.
 
@@ -820,6 +823,47 @@ def fit_dimension_free_moment_gmm(
             float(np.max(np.abs(component_gradient[:, -1]))),
         )
 
+    def current_mixture_weights(amplitudes_, mixture_weights_):
+        if mixture_weights_ is not None:
+            return np.asarray(mixture_weights_, dtype=float).copy()
+        raw_weights = amplitudes_ / np.maximum(
+            amplitude_factors(sigmas),
+            np.finfo(float).tiny,
+        )
+        row_sums = np.sum(raw_weights, axis=1, keepdims=True)
+        valid = row_sums[:, 0] > np.finfo(float).tiny
+        if not np.any(valid):
+            return np.full(K, 1.0 / K, dtype=float)
+        weights = np.mean(raw_weights[valid] / row_sums[valid], axis=0)
+        return weights / np.sum(weights)
+
+    def report_iteration(
+        iteration,
+        current_objective,
+        current_data_objective,
+        current_penalty_objective,
+        *,
+        phase,
+    ):
+        if iteration_callback is None:
+            return
+        iteration_callback(
+            IterationSnapshot(
+                iteration=iteration,
+                loss=current_objective,
+                parameters=MixtureParameters.spherical(
+                    means,
+                    current_mixture_weights(amplitudes, mixture_weights),
+                    sigmas,
+                ),
+                phase=phase,
+                losses={
+                    "data": current_data_objective,
+                    "penalty": current_penalty_objective,
+                },
+            )
+        )
+
     start_time = time.time()
     Q_list = build_Q_list(means, sigmas)
     amplitudes, mixture_weights = solve_amplitudes(
@@ -833,6 +877,13 @@ def fit_dimension_free_moment_gmm(
     history = []
     data_history = []
     penalty_history = []
+    report_iteration(
+        0,
+        initial_objective,
+        data_objective(Q_list, amplitudes),
+        penalty_objective(means),
+        phase="initialization",
+    )
 
     iterator = range(int(n_outer))
     if verbose:
@@ -840,7 +891,7 @@ def fit_dimension_free_moment_gmm(
 
         iterator = tqdm(iterator)
 
-    for _ in iterator:
+    for outer_iteration in iterator:
         for _ in range(int(geom_sweeps)):
             if geometry_optimization == "joint":
                 Q_list, amplitudes = joint_geometry_sweep(
@@ -866,6 +917,13 @@ def fit_dimension_free_moment_gmm(
         history.append(current_objective)
         data_history.append(current_data_objective)
         penalty_history.append(current_penalty_objective)
+        report_iteration(
+            outer_iteration + 1,
+            current_objective,
+            current_data_objective,
+            current_penalty_objective,
+            phase="optimization",
+        )
 
         improvement = previous_objective - current_objective
         tolerance = objective_atol + objective_rtol * max(
@@ -885,7 +943,7 @@ def fit_dimension_free_moment_gmm(
     converged = stable_iterations >= convergence_patience
     pre_polish_objective = objective(Q_list, amplitudes, means)
     polish_history = []
-    for _ in range(int(joint_polish_sweeps)):
+    for polish_iteration in range(int(joint_polish_sweeps)):
         Q_list, amplitudes = joint_geometry_sweep(
             Q_list,
             amplitudes,
@@ -898,7 +956,15 @@ def fit_dimension_free_moment_gmm(
             sigmas,
             mixture_weights,
         )
-        polish_history.append(objective(Q_list, amplitudes, means))
+        polish_objective = objective(Q_list, amplitudes, means)
+        polish_history.append(polish_objective)
+        report_iteration(
+            n_outer_iter + polish_iteration + 1,
+            polish_objective,
+            data_objective(Q_list, amplitudes),
+            penalty_objective(means),
+            phase="polish",
+        )
 
     elapsed = time.time() - start_time
     final_data_objective = data_objective(Q_list, amplitudes)

@@ -18,6 +18,8 @@ import time
 import numpy as np
 from scipy.optimize import least_squares, minimize
 
+from src_np.iteration import IterationSnapshot, MixtureParameters
+
 from .moments import _prepare_moment_blocks
 from .utils import MIN_SIGMA, _evaluate_moment_Q_and_jacobian
 
@@ -116,6 +118,7 @@ def _fit_separated_variance_moment_gmm(
     geometry_optimization="component",
     variance_formula_q_bounds=(1e-4, 1.0 - 1e-4),
     verbose=False,
+    iteration_callback=None,
 ):
     """Fit a moment GMM while separating mean and variance updates."""
     if variance_mode not in (FORMULA_VARIANCE, JOINT_VARIANCE):
@@ -636,6 +639,23 @@ def _fit_separated_variance_moment_gmm(
             float(np.max(np.abs(gradient[:, -1]))),
         )
 
+    def report_iteration(iteration, current_objective, *, phase):
+        if iteration_callback is None:
+            return
+        iteration_callback(
+            IterationSnapshot(
+                iteration=iteration,
+                loss=current_objective,
+                parameters=MixtureParameters.spherical(
+                    means,
+                    mixture_weights,
+                    sigmas,
+                ),
+                phase=phase,
+                losses={"data": current_objective, "penalty": 0.0},
+            )
+        )
+
     start_time = time.time()
     Q_list = build_Q_list(means, sigmas)
     amplitudes, mixture_weights = solve_weights(Q_list, sigmas, mixture_weights)
@@ -644,6 +664,7 @@ def _fit_separated_variance_moment_gmm(
     stable_iterations = 0
     history = []
     data_history = []
+    report_iteration(0, initial_objective, phase="initialization")
 
     iterator = range(int(n_outer))
     if verbose:
@@ -651,7 +672,7 @@ def _fit_separated_variance_moment_gmm(
 
         iterator = tqdm(iterator)
 
-    for _ in iterator:
+    for outer_iteration in iterator:
         for _ in range(int(geom_sweeps)):
             if variance_mode == FORMULA_VARIANCE:
                 # Formula updates are deliberately component-wise: optimize m_k
@@ -677,6 +698,11 @@ def _fit_separated_variance_moment_gmm(
         current_objective = data_objective(Q_list, amplitudes)
         history.append(current_objective)
         data_history.append(current_objective)
+        report_iteration(
+            outer_iteration + 1,
+            current_objective,
+            phase="optimization",
+        )
 
         improvement = previous_objective - current_objective
         tolerance = objective_atol + objective_rtol * max(
