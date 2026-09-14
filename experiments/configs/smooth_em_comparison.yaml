@@ -1,0 +1,66 @@
+defaults:
+  - metrics: default
+  - aggregators: all
+  - datasets/10d_spherical_well_separated@dataset_defs.spherical_well_separated
+  - _self_
+
+run_name: smooth_em_comparison
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: 1
+  num_datasets: 3
+  model_seeds_per_dataset: 2
+  n_jobs: 1
+  backend: loky
+  batch_size: auto
+  init_models_with_oracle_n_components: true
+
+models:
+  - model_name: smooth_em_homogeneous
+    target:
+      _target_: src_np.gmm.SmoothEMGaussianMixtureModel
+      mode: homogeneous
+      target_neighbor_fraction: 0.166667
+      n_design_points: 400
+      regularization: 6.0
+      max_steps: 10
+      internal_steps: 5
+      n_directions: 10
+      min_variance: 0.0025
+      max_variance: 8.0
+      merge_threshold: 0.65
+
+  - model_name: smooth_em_inhomogeneous
+    target:
+      _target_: src_np.gmm.SmoothEMGaussianMixtureModel
+      mode: inhomogeneous
+      target_neighbor_fraction: 0.166667
+      n_design_points: 400
+      regularization: 6.0
+      max_steps: 10
+      internal_steps: 5
+      n_directions: 10
+      min_variance: 0.0025
+      max_variance: 8.0
+      merge_threshold: 0.65
+
+  - model_name: moment_gmm
+    target:
+      _target_: src_np.gmm.MomentGaussianMixtureModel
+      init: kmeans
+      n_init: 3
+      target_neighbor_counts: [100, 70, 50]
+      n_zero_moments: 1
+      n_first_moments: 3
+      n_second_moments: 0
+      max_steps: 30
+
+datasets:
+  - ${dataset_defs.spherical_well_separated}

@@ -56,6 +56,27 @@
         {"key": "experimental_uniform_center_fraction", "display_name": "Oracle center fraction", "description": "Research-only mechanism value.", "type": "number", "default": 0.05, "minimum": 0.0, "maximum": 1.0, "hidden": true},
         {"key": "compensated_radial_second_moments", "display_name": "Compensate radial probes", "description": "Subtract the base kernel from radial probes.", "type": "boolean", "default": false, "advanced": true}
       ]
+    },
+    {
+      "id": "smooth_em_gmm",
+      "display_name": "Smoothed EM Gaussian Mixture Model",
+      "description": "Overcomplete smoothed-EM estimator with homogeneous and inhomogeneous spherical-variance modes.",
+      "target": "src_np.gmm.SmoothEMGaussianMixtureModel",
+      "default_instance_name": "smooth_em_gmm",
+      "parameters": [
+        {"key": "mode", "display_name": "Mode", "description": "Homogeneous or inhomogeneous spherical variances.", "type": "enum", "default": "inhomogeneous", "options": [{"value": "homogeneous", "display_name": "Homogeneous"}, {"value": "inhomogeneous", "display_name": "Inhomogeneous"}]},
+        {"key": "target_neighbor_fraction", "display_name": "Target neighbor fraction", "description": "Target soft-neighbor mass as a fraction of the sample size.", "type": "number", "default": 0.166667, "exclusive_minimum": 0.0, "exclusive_maximum": 1.0, "step": 0.01},
+        {"key": "target_neighbor_count", "display_name": "Target neighbor count", "description": "Optional absolute target; when set, it overrides the fraction.", "type": "number", "default": null, "nullable": true, "exclusive_minimum": 0.0, "advanced": true},
+        {"key": "n_design_points", "display_name": "Design points", "description": "Number of sampled design points used by the localized moment system.", "type": "integer", "default": 400, "minimum": 1, "maximum": 10000},
+        {"key": "regularization", "display_name": "Simplex regularization", "description": "Sparsity/entropy regularization used during weight updates.", "type": "number", "default": 6.0, "minimum": 0.0, "step": 0.1, "advanced": true},
+        {"key": "max_steps", "display_name": "Maximum external steps", "description": "Number of outer Smooth EM updates.", "type": "integer", "default": 10, "minimum": 0, "maximum": 1000},
+        {"key": "internal_steps", "display_name": "Internal steps", "description": "Number of localized moment updates per external step.", "type": "integer", "default": 5, "minimum": 1, "maximum": 100, "advanced": true},
+        {"key": "n_directions", "display_name": "Variance directions", "description": "Random directions used for inhomogeneous variance updates.", "type": "integer", "default": 10, "minimum": 1, "maximum": 100, "advanced": true},
+        {"key": "min_variance", "display_name": "Minimum variance", "description": "Lower numerical bound for estimated spherical variances.", "type": "number", "default": 0.0025, "exclusive_minimum": 0.0, "advanced": true},
+        {"key": "max_variance", "display_name": "Maximum variance", "description": "Upper numerical bound for estimated spherical variances.", "type": "number", "default": 8.0, "exclusive_minimum": 0.0, "advanced": true},
+        {"key": "merge_threshold", "display_name": "Merge threshold", "description": "Distance multiplier used to merge nearby overcomplete components.", "type": "number", "default": 0.65, "minimum": 0.0, "step": 0.05, "advanced": true},
+        {"key": "random_state", "display_name": "Model random state", "description": "Injected by the runner.", "type": "integer", "default": null, "nullable": true, "hidden": true}
+      ]
     }
   ]
 }

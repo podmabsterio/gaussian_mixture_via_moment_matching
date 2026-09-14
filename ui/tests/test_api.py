@@ -20,8 +20,10 @@ def test_health_and_declarations_api(tmp_path):
     response = client.get("/api/declarations")
     assert response.status_code == 200
     body = response.get_json()
-    assert len(body["models"]) == 1
-    assert body["models"][0]["id"] == "moment_gmm"
+    assert {model["id"] for model in body["models"]} >= {
+        "moment_gmm",
+        "smooth_em_gmm",
+    }
 
 
 def test_invalid_run_is_reported_as_json(tmp_path):

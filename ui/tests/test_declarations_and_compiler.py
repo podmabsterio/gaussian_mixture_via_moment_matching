@@ -32,9 +32,12 @@ def base_request():
 
 def test_declarations_load_and_expand_dataset_parameter_sets():
     store = DeclarationStore(DECLARATIONS)
-    assert [model["target"] for model in store.models] == [
-        "src_np.gmm.MomentGaussianMixtureModel"
-    ]
+    assert {
+        model["target"] for model in store.models
+    } >= {
+        "src_np.gmm.MomentGaussianMixtureModel",
+        "src_np.gmm.SmoothEMGaussianMixtureModel",
+    }
     assert len(store.datasets) == 6
     gaussian_keys = {parameter["key"] for parameter in store.dataset("gaussian")["parameters"]}
     assert {"n_features", "n_components", "n_samples"} <= gaussian_keys
@@ -73,7 +76,7 @@ def test_compiler_applies_ui_and_hidden_defaults(tmp_path):
     assert config.models[0].target.random_state is None
     assert config.datasets[0].target.n_samples == 100
     assert config.runner.n_jobs == 2
-    assert metadata["result_path"].endswith("results/compiler_test")
+    assert Path(metadata["result_path"]).as_posix().endswith("results/compiler_test")
 
 
 def test_hidden_parameter_cannot_be_overridden(tmp_path):
