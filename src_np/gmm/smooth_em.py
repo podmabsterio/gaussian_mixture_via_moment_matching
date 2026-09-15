@@ -4,8 +4,8 @@ The implementation intentionally keeps the prototype's two research modes:
 ``homogeneous`` uses localized first moments and a profiled scale coefficient,
 while ``inhomogeneous`` alternates the same sparse moment step with an
 isotropic variance/weight update from randomized one-dimensional projections.
-It is an overcomplete estimator: ``n_components`` is accepted for the common
-repository API but is not used to seed the initial number of components.
+It is an overcomplete estimator: the initial number of components defaults
+to the number of sampled design points and is independent of oracle ``K``.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ class SmoothEMGaussianMixtureModel:
 
     def __init__(
         self,
-        n_components,
+        initial_components=None,
         mode="inhomogeneous",
         target_neighbor_fraction=1.0 / 6.0,
         target_neighbor_count=None,
@@ -35,7 +35,7 @@ class SmoothEMGaussianMixtureModel:
         merge_threshold=0.65,
         random_state=None,
     ):
-        self.n_components = int(n_components)
+        self.initial_components = initial_components
         self.mode = str(mode)
         self.target_neighbor_fraction = float(target_neighbor_fraction)
         self.target_neighbor_count = target_neighbor_count
@@ -51,8 +51,10 @@ class SmoothEMGaussianMixtureModel:
         self._validate_configuration()
 
     def _validate_configuration(self):
-        if self.n_components < 1:
-            raise ValueError("n_components must be positive")
+        if self.initial_components is not None and int(self.initial_components) < 1:
+            raise ValueError("initial_components must be positive or None")
+        if self.initial_components is not None:
+            self.initial_components = int(self.initial_components)
         if self.mode not in ("homogeneous", "inhomogeneous"):
             raise ValueError("mode must be 'homogeneous' or 'inhomogeneous'")
         if not 0 < self.target_neighbor_fraction < 1:
@@ -214,7 +216,9 @@ class SmoothEMGaussianMixtureModel:
         design = self._design(X, rng)
         self.s_ = self._bandwidth(X, design)
         Z, directions = self._moment_design(X, design, self.s_)
-        K0 = min(design.shape[0], max(8, min(24, 2 * X.shape[1] + 4)))
+        K0 = design.shape[0] if self.initial_components is None else min(
+            design.shape[0], self.initial_components
+        )
         means = self._farthest_seeds(design, K0, rng)
         variances = np.ones(K0, dtype=float)
         weights = np.full(K0, 1.0 / K0)

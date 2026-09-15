@@ -19,7 +19,6 @@ def _data(seed=7):
 def test_smooth_em_homogeneous_fulfills_model_contract_and_callback():
     snapshots = []
     model = SmoothEMGaussianMixtureModel(
-        2,
         mode="homogeneous",
         n_design_points=30,
         max_steps=2,
@@ -41,7 +40,6 @@ def test_smooth_em_homogeneous_fulfills_model_contract_and_callback():
 def test_smooth_em_inhomogeneous_has_bounded_spherical_variances_and_is_reproducible():
     X = _data(12)
     kwargs = dict(
-        n_components=2,
         mode="inhomogeneous",
         n_design_points=32,
         max_steps=2,
@@ -59,6 +57,17 @@ def test_smooth_em_inhomogeneous_has_bounded_spherical_variances_and_is_reproduc
     assert np.all(first.sigmas_ ** 2 <= first.max_variance)
     assert np.all(first.weights_ >= 0)
     np.testing.assert_allclose(np.sum(first.weights_), 1.0)
+
+
+def test_smooth_em_defaults_to_one_initial_component_per_design_point():
+    model = SmoothEMGaussianMixtureModel(
+        mode="inhomogeneous",
+        n_design_points=12,
+        max_steps=0,
+        random_state=23,
+    ).fit(_data())
+
+    assert model.history_[0].metadata["n_components"] == 12
 
 
 def test_smooth_em_is_registered_in_ui_declarations():

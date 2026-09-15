@@ -1,7 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import copy
 import csv
+import inspect
 import json
 import os
 import shutil
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from hydra.utils import instantiate
+from hydra.utils import get_class, instantiate
 from omegaconf import OmegaConf
 from threadpoolctl import threadpool_limits
 
@@ -311,13 +312,18 @@ class QuickExperimentManager:
                 record["data"] = data_payload
                 self._publish_locked(record, {"type": "data", "data": data_payload})
 
-            n_components = int(np.asarray(dataset["true_means"]).shape[0])
             model_configuration = {
                 "_target_": prepared["model_declaration"]["target"],
                 **prepared["model_parameters"],
-                "n_components": n_components,
                 "random_state": prepared["execution"]["model_seed"],
             }
+            target_class = get_class(model_configuration["_target_"])
+            if "n_components" in inspect.signature(
+                target_class.__init__
+            ).parameters:
+                model_configuration["n_components"] = int(
+                    np.asarray(dataset["true_means"]).shape[0]
+                )
             prepared["config"]["models"][0]["target"] = copy.deepcopy(
                 model_configuration
             )
@@ -661,3 +667,4 @@ __all__ = [
     "QuickRunConflict",
     "QuickRunNotFound",
 ]
+

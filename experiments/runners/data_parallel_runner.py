@@ -1,6 +1,8 @@
+﻿import inspect
+
 import hydra
 import pandas as pd
-from hydra.utils import instantiate
+from hydra.utils import get_class, instantiate
 from omegaconf import OmegaConf
 from collections import defaultdict
 from joblib import Parallel, delayed
@@ -17,14 +19,18 @@ from experiments.utils.params_shape_utils import convert_and_check_params
 def _init_model(
     model_cfg, random_state, data_generator_cfg, init_models_with_oracle_n_components
 ):
-    if init_models_with_oracle_n_components:
+    target = model_cfg.target
+    target_class = get_class(target["_target_"])
+    accepts_n_components = "n_components" in inspect.signature(
+        target_class.__init__
+    ).parameters
+    if init_models_with_oracle_n_components and accepts_n_components:
         return instantiate(
-            model_cfg.target,
+            target,
             random_state=random_state,
             n_components=data_generator_cfg.n_components,
         )
-    else:
-        return instantiate(model_cfg.target, random_state=random_state)
+    return instantiate(target, random_state=random_state)
 
 
 def run_on_dataset(
@@ -162,3 +168,4 @@ class DataParallelRunner:
             self.raw_results_ = None
 
         return rebuild([result for _, result in seeded_results])
+
