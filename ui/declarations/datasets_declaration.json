@@ -3,7 +3,7 @@
   "parameter_sets": {
     "gaussian_mixture": [
       {"key": "n_features", "display_name": "Dimensions", "description": "Number of observed features.", "type": "integer", "default": 10, "minimum": 1, "maximum": 500},
-      {"key": "n_components", "display_name": "Components", "description": "Mixture component count, also injected into the model by the runner.", "type": "integer", "default": 3, "minimum": 1, "maximum": 50},
+      {"key": "n_components", "display_name": "Components", "description": "True mixture component count; injected into ordinary models, but not used by Data points (K = n) initialization.", "type": "integer", "default": 3, "minimum": 1, "maximum": 50},
       {"key": "n_samples", "display_name": "Sample size", "description": "Observations in every generated dataset.", "type": "integer", "default": 500, "minimum": 20, "maximum": 100000, "step": 10},
       {"key": "covariance_type", "display_name": "Covariance structure", "description": "Shape of component covariance matrices.", "type": "enum", "default": "spherical", "options": [{"value": "spherical", "display_name": "Spherical"}, {"value": "diag", "display_name": "Diagonal"}, {"value": "full", "display_name": "Full"}, {"value": "tied", "display_name": "Tied full"}]},
       {"key": "variance_spread", "display_name": "Variance spread", "description": "Component-to-component variance heterogeneity.", "type": "number", "default": 1.5, "minimum": 1.0, "maximum": 100.0, "step": 0.1},

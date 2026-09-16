@@ -41,8 +41,16 @@ def sort_estimated_params_by_means(true_means, means, weights, covariances):
 
     true_indices, estimated_indices = linear_sum_assignment(cost)
 
-    permutation = np.empty(len(true_means), dtype=int)
-    permutation[true_indices] = estimated_indices
+    # Put components matched to the true means first, in true-component order,
+    # but retain every unmatched estimated component.  Distributional metrics
+    # and UI rendering must see the complete fitted mixture when K is unknown.
+    matched_order = estimated_indices[np.argsort(true_indices)]
+    unmatched = np.setdiff1d(
+        np.arange(len(means), dtype=int),
+        matched_order,
+        assume_unique=True,
+    )
+    permutation = np.concatenate([matched_order, unmatched])
 
     return means[permutation], weights[permutation], covariances[permutation]
 

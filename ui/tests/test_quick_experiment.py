@@ -1,6 +1,10 @@
 import time
 from pathlib import Path
 
+import numpy as np
+
+from experiments.visualization import PCAProjector2D
+from src_np.iteration import IterationSnapshot, MixtureParameters
 from ui.backend.app import create_app
 from ui.backend.declarations import DeclarationStore
 from ui.backend.quick_experiment import QuickExperimentManager
@@ -108,6 +112,70 @@ def test_quick_run_streams_iterations_and_saves_compatible_results(tmp_path):
     assert (result_path / "quick_dataset" / "mean.csv").is_file()
     assert (result_path / "quick_dataset" / "std.csv").is_file()
     assert [item["id"] for item in catalog.saved_runs()] == ["saved_quick"]
+
+
+def test_quick_data_point_initialization_uses_one_component_per_sample(tmp_path):
+    store = DeclarationStore(PROJECT_ROOT / "ui" / "declarations")
+    run_manager = RunManager(PROJECT_ROOT, tmp_path / "runtime")
+    catalog = ResultsCatalog(tmp_path / "results")
+    quick_manager = QuickExperimentManager(
+        store,
+        PROJECT_ROOT,
+        tmp_path / "runtime" / "quick",
+        catalog.results_root,
+        max_points=100,
+    )
+    client = create_app(store, run_manager, catalog, quick_manager).test_client()
+    request = quick_request("data_point_components")
+    request["model"]["parameters"].update(
+        {
+            "init": "data_points",
+            "max_steps": 0,
+        }
+    )
+    request["dataset"]["parameters"]["n_samples"] = 20
+
+    response = client.post("/api/quick-runs", json=request)
+    assert response.status_code == 202
+    run_id = response.get_json()["id"]
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        run = client.get(f"/api/quick-runs/{run_id}").get_json()
+        if run["status"] not in {"starting", "running", "cancelling"}:
+            break
+        time.sleep(0.02)
+
+    assert run["status"] == "completed", run.get("traceback") or run.get("error")
+    assert run["config"]["models"][0]["target"]["n_components"] == 20
+    assert len(run["data"]["true_components"]) == 2
+    assert len(run["snapshots"]) == 1
+    displayed_components = run["snapshots"][0]["estimated_components"]
+    assert 0 < len(displayed_components) <= 20
+    assert all(component["weight"] > 1e-5 for component in displayed_components)
+    assert all(metric["value"] is not None for metric in run["final_metrics"])
+
+
+def test_quick_snapshot_hides_negligible_estimated_components():
+    means = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
+    weights = np.array([0.8, 1e-6, 0.2 - 1e-6])
+    covariances = np.repeat(np.eye(2)[None, :, :], 3, axis=0)
+    parameters = MixtureParameters(means, weights, covariances)
+    snapshot = IterationSnapshot(0, 1.0, parameters)
+    projector = PCAProjector2D(np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]))
+
+    payload = QuickExperimentManager._snapshot_payload(
+        snapshot,
+        parameters.as_dict(),
+        projector,
+        {},
+        {},
+    )
+
+    assert [component["index"] for component in payload["estimated_components"]] == [
+        0,
+        2,
+    ]
 
 
 def test_quick_run_validates_names_and_unknown_ids(tmp_path):

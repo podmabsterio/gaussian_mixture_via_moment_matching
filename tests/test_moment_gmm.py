@@ -2,11 +2,7 @@ import numpy as np
 import pytest
 
 from src_np.bandwidth_selection import select_s_values_by_average_kernel_count
-from src_np.gmm import (
-    MomentGaussianMixtureModel,
-    MultiSGaussianMixtureModel,
-    OneSGaussianMixtureModel,
-)
+from src_np.gmm import MomentGaussianMixtureModel
 from src_np.optimization import fit_dimension_free_moment_gmm
 from src_np.optimization.utils import (
     RADIAL_SECOND_MOMENT,
@@ -693,23 +689,42 @@ def _comparison_data_and_init():
     return data, init
 
 
-@pytest.mark.parametrize("geometry_optimization", ["component", "joint"])
-def test_first_order_sequential_configuration_reproduces_one_s_model(
+@pytest.mark.parametrize(
+    (
+        "geometry_optimization",
+        "expected_means",
+        "expected_sigmas",
+        "expected_amplitudes",
+    ),
+    [
+        (
+            "component",
+            [
+                [-0.8636558803507138, -0.8732283478262416],
+                [0.9903368687850546, 0.8230670857635876],
+            ],
+            [0.6293230329457399, 0.7164201225991232],
+            [0.3091454825291235, 0.25501947684439247],
+        ),
+        (
+            "joint",
+            [
+                [-0.852943693488373, -0.8640310078498202],
+                [0.9967244193359316, 0.8301632842544053],
+            ],
+            [0.6356282857064506, 0.6857103604464886],
+            [0.310404006972313, 0.25056665086523155],
+        ),
+    ],
+)
+def test_first_order_sequential_configuration_regression(
     geometry_optimization,
+    expected_means,
+    expected_sigmas,
+    expected_amplitudes,
 ):
     data, init = _comparison_data_and_init()
-    old = OneSGaussianMixtureModel(
-        2,
-        s_values=[1.5, 0.9],
-        init=init,
-        num_directions=2,
-        random_state=8,
-        max_steps=2,
-        objective_rtol=0.0,
-        convergence_patience=99,
-        joint_optimization=geometry_optimization == "joint",
-    )
-    new = MomentGaussianMixtureModel(
+    model = MomentGaussianMixtureModel(
         2,
         s_values=[1.5, 0.9],
         init=init,
@@ -726,32 +741,17 @@ def test_first_order_sequential_configuration_reproduces_one_s_model(
         convergence_patience=99,
     )
 
-    old.fit(data)
-    assert new.fit(data) is new
-    np.testing.assert_allclose(new.test_directions_, old.test_directions_)
-    np.testing.assert_allclose(new.means_, old.means_, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(new.sigmas_, old.sigmas_, rtol=1e-12, atol=1e-12)
+    assert model.fit(data) is model
+    np.testing.assert_allclose(model.means_, expected_means, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(model.sigmas_, expected_sigmas, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(
-        new.amplitudes_,
-        old.amplitudes_,
-        rtol=1e-12,
-        atol=1e-12,
+        model.amplitudes_, expected_amplitudes, rtol=1e-12, atol=1e-12
     )
 
 
-def test_first_order_joint_configuration_reproduces_multi_s_model():
+def test_first_order_joint_configuration_regression():
     data, init = _comparison_data_and_init()
-    old = MultiSGaussianMixtureModel(
-        2,
-        s_values=[1.5, 0.9],
-        init=init,
-        num_directions=2,
-        random_state=8,
-        max_steps=2,
-        objective_rtol=0.0,
-        convergence_patience=99,
-    )
-    new = MomentGaussianMixtureModel(
+    model = MomentGaussianMixtureModel(
         2,
         s_values=[1.5, 0.9],
         init=init,
@@ -768,17 +768,37 @@ def test_first_order_joint_configuration_reproduces_multi_s_model():
         convergence_patience=99,
     )
 
-    old.fit(data)
-    new.fit(data)
-    np.testing.assert_allclose(new.means_, old.means_, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(new.sigmas_, old.sigmas_, rtol=1e-12, atol=1e-12)
+    model.fit(data)
     np.testing.assert_allclose(
-        new.amplitudes_per_s_,
-        old.amplitudes_per_s_,
+        model.means_,
+        [
+            [-0.8284683944795485, -0.8639643774352537],
+            [0.9944760420103976, 0.8288823420225336],
+        ],
         rtol=1e-12,
         atol=1e-12,
     )
-    np.testing.assert_allclose(new.weights_, old.weights_, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        model.sigmas_,
+        [0.623135219326025, 0.6567553703492979],
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        model.amplitudes_per_s_,
+        [
+            [0.42944776285238184, 0.3626698538373132],
+            [0.307705083953389, 0.24569003604561349],
+        ],
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        model.weights_,
+        [0.5427194926095844, 0.4572805073904156],
+        rtol=1e-12,
+        atol=1e-12,
+    )
 
 
 def test_each_moment_loss_uses_its_weight_and_own_test_count():

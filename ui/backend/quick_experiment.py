@@ -29,6 +29,7 @@ from .declarations import DeclarationError, DeclarationStore
 
 
 TERMINAL_STATUSES = {"completed", "cancelled", "error"}
+ESTIMATED_COMPONENT_DISPLAY_WEIGHT_THRESHOLD = 1e-5
 
 
 class QuickRunNotFound(KeyError):
@@ -312,6 +313,10 @@ class QuickExperimentManager:
                 record["data"] = data_payload
                 self._publish_locked(record, {"type": "data", "data": data_payload})
 
+            if prepared["model_parameters"].get("init") == "data_points":
+                n_components = int(np.asarray(dataset["X"]).shape[0])
+            else:
+                n_components = int(np.asarray(dataset["true_means"]).shape[0])
             model_configuration = {
                 "_target_": prepared["model_declaration"]["target"],
                 **prepared["model_parameters"],
@@ -494,6 +499,7 @@ class QuickExperimentManager:
             "estimated_components": [
                 {"index": index, "weight": float(weights[index]), **component}
                 for index, component in enumerate(geometry)
+                if weights[index] > ESTIMATED_COMPONENT_DISPLAY_WEIGHT_THRESHOLD
             ],
         }
 

@@ -16,12 +16,17 @@ moment model, simplex solve, and diagnostics twice.
 import time
 
 import numpy as np
-from scipy.optimize import least_squares, minimize
+from scipy.optimize import least_squares
 
 from src_np.iteration import IterationSnapshot, MixtureParameters
 
 from .moments import _prepare_moment_blocks
 from .utils import MIN_SIGMA, _evaluate_moment_Q_and_jacobian
+from .weights import (
+    solve_simplex_weights,
+    weight_regularization_objectives,
+    weight_regularization_schedule_factor,
+)
 
 
 FORMULA_VARIANCE = "formula"
@@ -116,6 +121,11 @@ def _fit_separated_variance_moment_gmm(
     convergence_patience=2,
     amplitude_optimization="simplex",
     geometry_optimization="component",
+    weight_entropy_regularization=0.0,
+    weight_gini_regularization=0.0,
+    weight_regularization_schedule="constant",
+    weight_active_set=True,
+    weight_solver_random_state=None,
     variance_formula_q_bounds=(1e-4, 1.0 - 1e-4),
     verbose=False,
     iteration_callback=None,
@@ -152,6 +162,16 @@ def _fit_separated_variance_moment_gmm(
         raise ValueError("eta_step_bound must be positive or None")
     if m_step_bound is not None and m_step_bound <= 0:
         raise ValueError("m_step_bound must be positive or None")
+    weight_entropy_regularization = float(weight_entropy_regularization)
+    weight_gini_regularization = float(weight_gini_regularization)
+    if (
+        not np.isfinite(weight_entropy_regularization)
+        or weight_entropy_regularization < 0
+        or not np.isfinite(weight_gini_regularization)
+        or weight_gini_regularization < 0
+    ):
+        raise ValueError("weight regularization strengths must be finite and non-negative")
+    weight_regularization_schedule_factor(weight_regularization_schedule, 0.0)
 
     q_bounds = _validate_formula_q_bounds(variance_formula_q_bounds)
     if variance_mode == FORMULA_VARIANCE:
@@ -270,7 +290,23 @@ def _fit_separated_variance_moment_gmm(
             raise ValueError("weights_init must have a positive sum")
         mixture_weights /= total
 
-    def solve_weights(Q_list, sigmas_, weights_start):
+    weight_solve_results = []
+    weight_regularization_factor_history = []
+    current_weight_regularization_factor = weight_regularization_schedule_factor(
+        weight_regularization_schedule,
+        0.0,
+    )
+
+    def regularization_factor(step):
+        progress = 0.0 if int(n_outer) == 0 else step / float(n_outer)
+        return weight_regularization_schedule_factor(
+            weight_regularization_schedule,
+            progress,
+        )
+
+    def solve_weights(Q_list, sigmas_, weights_start, *, schedule_step=0):
+        nonlocal current_weight_regularization_factor
+        current_weight_regularization_factor = regularization_factor(schedule_step)
         factors = amplitude_factors(sigmas_)
         design = np.vstack(
             [
@@ -281,39 +317,26 @@ def _fit_separated_variance_moment_gmm(
         target = np.concatenate(
             [block["residual_scale"] * block["Z"] for block in blocks]
         )
-        if K == 1:
-            weights = np.ones(1, dtype=float)
-        else:
-            start = np.maximum(np.asarray(weights_start, dtype=float), 0.0)
-            start /= np.sum(start)
-
-            def objective_(weights_):
-                residual_ = design @ weights_ - target
-                return 0.5 * np.dot(residual_, residual_)
-
-            def jacobian_(weights_):
-                return design.T @ (design @ weights_ - target)
-
-            result = minimize(
-                objective_,
-                start,
-                jac=jacobian_,
-                method="SLSQP",
-                bounds=[(0.0, 1.0)] * K,
-                constraints={
-                    "type": "eq",
-                    "fun": lambda weights_: np.sum(weights_) - 1.0,
-                    "jac": lambda weights_: np.ones_like(weights_),
-                },
-                options={"ftol": 1e-12, "maxiter": max(200, 20 * K)},
-            )
-            if not result.success:
-                raise RuntimeError(
-                    "simplex-constrained amplitude optimization failed: "
-                    f"{result.message}"
-                )
-            weights = np.clip(result.x, 0.0, 1.0)
-            weights /= np.sum(weights)
+        result = solve_simplex_weights(
+            design,
+            target,
+            weights_start,
+            entropy_regularization=(
+                current_weight_regularization_factor
+                * weight_entropy_regularization
+            ),
+            gini_regularization=(
+                current_weight_regularization_factor * weight_gini_regularization
+            ),
+            random_state=weight_solver_random_state,
+            use_active_set=weight_active_set,
+            active_tolerance=active_tol,
+        )
+        weight_solve_results.append(result)
+        weight_regularization_factor_history.append(
+            current_weight_regularization_factor
+        )
+        weights = result.weights
         return amplitudes_from_weights(weights, sigmas_), weights
 
     def data_objective(Q_list, amplitudes_):
@@ -342,6 +365,24 @@ def _fit_separated_variance_moment_gmm(
                 0.5 * block["residual_scale"] ** 2 * float(np.dot(residual, residual))
             )
         return values
+
+    def weight_penalty_parts(weights_):
+        return weight_regularization_objectives(
+            weights_,
+            entropy_regularization=(
+                current_weight_regularization_factor
+                * weight_entropy_regularization
+            ),
+            gini_regularization=(
+                current_weight_regularization_factor * weight_gini_regularization
+            ),
+        )
+
+    def weight_penalty_objective(weights_):
+        return float(sum(weight_penalty_parts(weights_)))
+
+    def objective(Q_list, amplitudes_, weights_):
+        return data_objective(Q_list, amplitudes_) + weight_penalty_objective(weights_)
 
     diagnostics = {
         "calls": 0,
@@ -639,7 +680,14 @@ def _fit_separated_variance_moment_gmm(
             float(np.max(np.abs(gradient[:, -1]))),
         )
 
-    def report_iteration(iteration, current_objective, *, phase):
+    def report_iteration(
+        iteration,
+        current_objective,
+        current_data_objective,
+        current_weight_penalty_objective,
+        *,
+        phase,
+    ):
         if iteration_callback is None:
             return
         iteration_callback(
@@ -652,19 +700,32 @@ def _fit_separated_variance_moment_gmm(
                     sigmas,
                 ),
                 phase=phase,
-                losses={"data": current_objective, "penalty": 0.0},
+                losses={
+                    "data": current_data_objective,
+                    "penalty": current_weight_penalty_objective,
+                    "mean_penalty": 0.0,
+                    "weight_regularization": current_weight_penalty_objective,
+                },
             )
         )
 
     start_time = time.time()
     Q_list = build_Q_list(means, sigmas)
     amplitudes, mixture_weights = solve_weights(Q_list, sigmas, mixture_weights)
-    previous_objective = data_objective(Q_list, amplitudes)
+    previous_objective = objective(Q_list, amplitudes, mixture_weights)
     initial_objective = previous_objective
     stable_iterations = 0
     history = []
     data_history = []
-    report_iteration(0, initial_objective, phase="initialization")
+    penalty_history = []
+    weight_regularization_history = []
+    report_iteration(
+        0,
+        initial_objective,
+        data_objective(Q_list, amplitudes),
+        weight_penalty_objective(mixture_weights),
+        phase="initialization",
+    )
 
     iterator = range(int(n_outer))
     if verbose:
@@ -694,13 +755,20 @@ def _fit_separated_variance_moment_gmm(
             Q_list,
             sigmas,
             mixture_weights,
+            schedule_step=outer_iteration + 1,
         )
-        current_objective = data_objective(Q_list, amplitudes)
+        current_data_objective = data_objective(Q_list, amplitudes)
+        current_weight_penalty_objective = weight_penalty_objective(mixture_weights)
+        current_objective = current_data_objective + current_weight_penalty_objective
         history.append(current_objective)
-        data_history.append(current_objective)
+        data_history.append(current_data_objective)
+        penalty_history.append(current_weight_penalty_objective)
+        weight_regularization_history.append(current_weight_penalty_objective)
         report_iteration(
             outer_iteration + 1,
             current_objective,
+            current_data_objective,
+            current_weight_penalty_objective,
             phase="optimization",
         )
 
@@ -710,7 +778,15 @@ def _fit_separated_variance_moment_gmm(
             abs(current_objective),
             np.finfo(float).tiny,
         )
-        if 0 <= improvement <= tolerance:
+        schedule_is_decaying = (
+            weight_regularization_schedule != "constant"
+            and current_weight_regularization_factor > 0.0
+        )
+        if schedule_is_decaying:
+            # Objectives with different regularization strengths are not
+            # directly comparable. Let a decay schedule reach its endpoint.
+            stable_iterations = 0
+        elif 0 <= improvement <= tolerance:
             stable_iterations += 1
         else:
             stable_iterations = 0
@@ -719,7 +795,14 @@ def _fit_separated_variance_moment_gmm(
         previous_objective = current_objective
 
     elapsed = time.time() - start_time
-    final_objective = data_objective(Q_list, amplitudes)
+    final_data_objective = data_objective(Q_list, amplitudes)
+    final_entropy_objective, final_gini_objective = weight_penalty_parts(
+        mixture_weights
+    )
+    final_weight_penalty_objective = (
+        final_entropy_objective + final_gini_objective
+    )
+    final_objective = final_data_objective + final_weight_penalty_objective
     final_mean_gradient_inf, final_eta_gradient_inf = final_gradient_norms(amplitudes)
     n_outer_iter = len(history)
     calls = diagnostics["calls"]
@@ -735,12 +818,41 @@ def _fit_separated_variance_moment_gmm(
         "initial_objective": initial_objective,
         "history": np.asarray(history),
         "polish_history": np.asarray([]),
-        "data_objective": final_objective,
+        "data_objective": final_data_objective,
         "data_history": np.asarray(data_history),
         "data_objective_per_order": data_objective_per_order(Q_list, amplitudes),
         "data_objective_per_family": data_objective_per_family(Q_list, amplitudes),
-        "penalty_objective": 0.0,
-        "penalty_history": np.zeros(n_outer_iter),
+        "penalty_objective": final_weight_penalty_objective,
+        "penalty_history": np.asarray(penalty_history),
+        "mean_penalty_objective": 0.0,
+        "weight_regularization_objective": final_weight_penalty_objective,
+        "weight_regularization_history": np.asarray(weight_regularization_history),
+        "entropy_regularization_objective": final_entropy_objective,
+        "gini_regularization_objective": final_gini_objective,
+        "weight_regularization_schedule": weight_regularization_schedule,
+        "weight_regularization_factor": current_weight_regularization_factor,
+        "weight_regularization_factor_history": np.asarray(
+            weight_regularization_factor_history,
+            dtype=float,
+        ),
+        "weight_solver_method": (
+            weight_solve_results[-1].method if weight_solve_results else None
+        ),
+        "weight_solver_iterations": int(
+            sum(result.n_iter for result in weight_solve_results)
+        ),
+        "weight_solver_converged": bool(
+            all(result.converged for result in weight_solve_results)
+        ),
+        "weight_solver_active_components": (
+            weight_solve_results[-1].n_optimized_components
+            if weight_solve_results
+            else K
+        ),
+        "weight_solver_active_history": np.asarray(
+            [result.n_optimized_components for result in weight_solve_results],
+            dtype=int,
+        ),
         "n_iter": n_outer_iter,
         "n_outer_iter": n_outer_iter,
         "converged": stable_iterations >= convergence_patience,

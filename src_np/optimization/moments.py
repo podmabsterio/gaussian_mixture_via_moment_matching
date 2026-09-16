@@ -2,7 +2,7 @@ import time
 from collections.abc import Mapping
 
 import numpy as np
-from scipy.optimize import least_squares, minimize, nnls
+from scipy.optimize import least_squares, nnls
 
 from src_np.iteration import IterationSnapshot, MixtureParameters
 
@@ -13,6 +13,11 @@ from .utils import (
     _evaluate_moment_Q_and_jacobian,
     _pack_geometry,
     _unpack_geometry,
+)
+from .weights import (
+    solve_simplex_weights,
+    weight_regularization_objectives,
+    weight_regularization_schedule_factor,
 )
 
 
@@ -152,6 +157,11 @@ def fit_dimension_free_moment_gmm(
     convergence_patience=2,
     amplitude_optimization="non_negative",
     geometry_optimization="component",
+    weight_entropy_regularization=0.0,
+    weight_gini_regularization=0.0,
+    weight_regularization_schedule="constant",
+    weight_active_set=True,
+    weight_solver_random_state=None,
     verbose=False,
     iteration_callback=None,
 ):
@@ -228,6 +238,20 @@ def fit_dimension_free_moment_gmm(
         raise ValueError("geometry_optimization must be 'component' or 'joint'")
     if amplitude_optimization not in ("non_negative", "simplex"):
         raise ValueError("amplitude_optimization must be 'non_negative' or 'simplex'")
+    weight_entropy_regularization = float(weight_entropy_regularization)
+    weight_gini_regularization = float(weight_gini_regularization)
+    if (
+        not np.isfinite(weight_entropy_regularization)
+        or weight_entropy_regularization < 0
+        or not np.isfinite(weight_gini_regularization)
+        or weight_gini_regularization < 0
+    ):
+        raise ValueError("weight regularization strengths must be finite and non-negative")
+    if (
+        weight_entropy_regularization > 0 or weight_gini_regularization > 0
+    ) and amplitude_optimization != "simplex":
+        raise ValueError("weight regularization requires amplitude_optimization='simplex'")
+    weight_regularization_schedule_factor(weight_regularization_schedule, 0.0)
     if int(n_outer) < 0 or int(geom_sweeps) < 1 or int(ls_max_nfev) < 1:
         raise ValueError("optimization iteration counts are invalid")
     if active_tol < 0 or objective_rtol < 0 or objective_atol < 0:
@@ -340,7 +364,23 @@ def fit_dimension_free_moment_gmm(
         else:
             mixture_weights = np.full(K, 1.0 / K, dtype=float)
 
-    def solve_amplitudes(Q_list, sigmas_, weights_start=None):
+    weight_solve_results = []
+    weight_regularization_factor_history = []
+    current_weight_regularization_factor = weight_regularization_schedule_factor(
+        weight_regularization_schedule,
+        0.0,
+    )
+
+    def regularization_factor(step):
+        progress = 0.0 if int(n_outer) == 0 else step / float(n_outer)
+        return weight_regularization_schedule_factor(
+            weight_regularization_schedule,
+            progress,
+        )
+
+    def solve_amplitudes(Q_list, sigmas_, weights_start=None, *, schedule_step=0):
+        nonlocal current_weight_regularization_factor
+        current_weight_regularization_factor = regularization_factor(schedule_step)
         if amplitude_optimization == "non_negative":
             solved = np.empty((n_groups, K), dtype=float)
             for group, indices in enumerate(block_indices_per_group):
@@ -364,43 +404,26 @@ def fit_dimension_free_moment_gmm(
             [block["residual_scale"] * block["Z"] for block in blocks]
         )
 
-        if K == 1:
-            solved_weights = np.ones(1, dtype=float)
-        else:
-            if weights_start is None:
-                initial_weights = np.full(K, 1.0 / K, dtype=float)
-            else:
-                initial_weights = np.asarray(weights_start, dtype=float).copy()
-                initial_weights = np.maximum(initial_weights, 0.0)
-                initial_weights /= np.sum(initial_weights)
-
-            def simplex_objective(weights_):
-                residual = design @ weights_ - target
-                return 0.5 * np.dot(residual, residual)
-
-            def simplex_jacobian(weights_):
-                return design.T @ (design @ weights_ - target)
-
-            result = minimize(
-                simplex_objective,
-                initial_weights,
-                jac=simplex_jacobian,
-                method="SLSQP",
-                bounds=[(0.0, 1.0)] * K,
-                constraints={
-                    "type": "eq",
-                    "fun": lambda weights_: np.sum(weights_) - 1.0,
-                    "jac": lambda weights_: np.ones_like(weights_),
-                },
-                options={"ftol": 1e-12, "maxiter": max(200, 20 * K)},
-            )
-            if not result.success:
-                raise RuntimeError(
-                    "simplex-constrained amplitude optimization failed: "
-                    f"{result.message}"
-                )
-            solved_weights = np.clip(result.x, 0.0, 1.0)
-            solved_weights /= np.sum(solved_weights)
+        result = solve_simplex_weights(
+            design,
+            target,
+            weights_start,
+            entropy_regularization=(
+                current_weight_regularization_factor
+                * weight_entropy_regularization
+            ),
+            gini_regularization=(
+                current_weight_regularization_factor * weight_gini_regularization
+            ),
+            random_state=weight_solver_random_state,
+            use_active_set=weight_active_set,
+            active_tolerance=active_tol,
+        )
+        weight_solve_results.append(result)
+        weight_regularization_factor_history.append(
+            current_weight_regularization_factor
+        )
+        solved_weights = result.weights
 
         return amplitudes_from_weights(solved_weights, sigmas_), solved_weights
 
@@ -443,8 +466,27 @@ def fit_dimension_free_moment_gmm(
         delta = means_ - means_reference
         return 0.5 * mean_penalty_weight * np.sum(delta * delta)
 
-    def objective(Q_list, amplitudes_, means_):
-        return data_objective(Q_list, amplitudes_) + penalty_objective(means_)
+    def weight_penalty_objective(weights_):
+        if weights_ is None:
+            return 0.0
+        values = weight_regularization_objectives(
+            weights_,
+            entropy_regularization=(
+                current_weight_regularization_factor
+                * weight_entropy_regularization
+            ),
+            gini_regularization=(
+                current_weight_regularization_factor * weight_gini_regularization
+            ),
+        )
+        return float(sum(values))
+
+    def objective(Q_list, amplitudes_, means_, weights_):
+        return (
+            data_objective(Q_list, amplitudes_)
+            + penalty_objective(means_)
+            + weight_penalty_objective(weights_)
+        )
 
     def geometry_bounds(means_, sigmas_):
         theta = _pack_geometry(means_, sigmas_)
@@ -593,10 +635,16 @@ def fit_dimension_free_moment_gmm(
             max_nfev=int(ls_max_nfev if max_nfev is None else max_nfev),
         )
         means_new, sigmas_new, Q_new_list, candidate_amplitudes, _ = evaluate(result.x)
-        accepted = objective(Q_new_list, candidate_amplitudes, means_new) <= objective(
+        accepted = objective(
+            Q_new_list,
+            candidate_amplitudes,
+            means_new,
+            mixture_weights_,
+        ) <= objective(
             Q_list,
             amplitudes_,
             means,
+            mixture_weights_,
         )
         record_geometry_result(result, accepted, K, polish=polish)
         if accepted:
@@ -841,7 +889,8 @@ def fit_dimension_free_moment_gmm(
         iteration,
         current_objective,
         current_data_objective,
-        current_penalty_objective,
+        current_mean_penalty_objective,
+        current_weight_penalty_objective,
         *,
         phase,
     ):
@@ -859,7 +908,12 @@ def fit_dimension_free_moment_gmm(
                 phase=phase,
                 losses={
                     "data": current_data_objective,
-                    "penalty": current_penalty_objective,
+                    "penalty": (
+                        current_mean_penalty_objective
+                        + current_weight_penalty_objective
+                    ),
+                    "mean_penalty": current_mean_penalty_objective,
+                    "weight_regularization": current_weight_penalty_objective,
                 },
             )
         )
@@ -871,17 +925,19 @@ def fit_dimension_free_moment_gmm(
         sigmas,
         mixture_weights,
     )
-    previous_objective = objective(Q_list, amplitudes, means)
+    previous_objective = objective(Q_list, amplitudes, means, mixture_weights)
     initial_objective = previous_objective
     stable_iterations = 0
     history = []
     data_history = []
     penalty_history = []
+    weight_regularization_history = []
     report_iteration(
         0,
         initial_objective,
         data_objective(Q_list, amplitudes),
         penalty_objective(means),
+        weight_penalty_objective(mixture_weights),
         phase="initialization",
     )
 
@@ -910,18 +966,25 @@ def fit_dimension_free_moment_gmm(
             Q_list,
             sigmas,
             mixture_weights,
+            schedule_step=outer_iteration + 1,
         )
         current_data_objective = data_objective(Q_list, amplitudes)
-        current_penalty_objective = penalty_objective(means)
+        current_mean_penalty_objective = penalty_objective(means)
+        current_weight_penalty_objective = weight_penalty_objective(mixture_weights)
+        current_penalty_objective = (
+            current_mean_penalty_objective + current_weight_penalty_objective
+        )
         current_objective = current_data_objective + current_penalty_objective
         history.append(current_objective)
         data_history.append(current_data_objective)
         penalty_history.append(current_penalty_objective)
+        weight_regularization_history.append(current_weight_penalty_objective)
         report_iteration(
             outer_iteration + 1,
             current_objective,
             current_data_objective,
-            current_penalty_objective,
+            current_mean_penalty_objective,
+            current_weight_penalty_objective,
             phase="optimization",
         )
 
@@ -931,7 +994,15 @@ def fit_dimension_free_moment_gmm(
             abs(current_objective),
             np.finfo(float).tiny,
         )
-        if 0 <= improvement <= tolerance:
+        schedule_is_decaying = (
+            weight_regularization_schedule != "constant"
+            and current_weight_regularization_factor > 0.0
+        )
+        if schedule_is_decaying:
+            # Objectives with different regularization strengths are not
+            # directly comparable. Let a decay schedule reach its endpoint.
+            stable_iterations = 0
+        elif 0 <= improvement <= tolerance:
             stable_iterations += 1
         else:
             stable_iterations = 0
@@ -941,7 +1012,7 @@ def fit_dimension_free_moment_gmm(
 
     n_outer_iter = len(history)
     converged = stable_iterations >= convergence_patience
-    pre_polish_objective = objective(Q_list, amplitudes, means)
+    pre_polish_objective = objective(Q_list, amplitudes, means, mixture_weights)
     polish_history = []
     for polish_iteration in range(int(joint_polish_sweeps)):
         Q_list, amplitudes = joint_geometry_sweep(
@@ -955,21 +1026,41 @@ def fit_dimension_free_moment_gmm(
             Q_list,
             sigmas,
             mixture_weights,
+            schedule_step=n_outer_iter,
         )
-        polish_objective = objective(Q_list, amplitudes, means)
+        polish_objective = objective(Q_list, amplitudes, means, mixture_weights)
         polish_history.append(polish_objective)
         report_iteration(
             n_outer_iter + polish_iteration + 1,
             polish_objective,
             data_objective(Q_list, amplitudes),
             penalty_objective(means),
+            weight_penalty_objective(mixture_weights),
             phase="polish",
         )
 
     elapsed = time.time() - start_time
     final_data_objective = data_objective(Q_list, amplitudes)
-    final_penalty_objective = penalty_objective(means)
+    final_mean_penalty_objective = penalty_objective(means)
+    final_weight_penalty_objective = weight_penalty_objective(mixture_weights)
+    final_penalty_objective = (
+        final_mean_penalty_objective + final_weight_penalty_objective
+    )
     final_objective = final_data_objective + final_penalty_objective
+    final_entropy_objective, final_gini_objective = (
+        weight_regularization_objectives(
+            mixture_weights,
+            entropy_regularization=(
+                current_weight_regularization_factor
+                * weight_entropy_regularization
+            ),
+            gini_regularization=(
+                current_weight_regularization_factor * weight_gini_regularization
+            ),
+        )
+        if mixture_weights is not None
+        else (0.0, 0.0)
+    )
     final_mean_gradient_inf, final_eta_gradient_inf = final_geometry_gradient_norms(
         amplitudes, mixture_weights
     )
@@ -999,6 +1090,35 @@ def fit_dimension_free_moment_gmm(
         "data_objective_per_family": data_objective_per_family(Q_list, amplitudes),
         "penalty_objective": final_penalty_objective,
         "penalty_history": np.asarray(penalty_history),
+        "mean_penalty_objective": final_mean_penalty_objective,
+        "weight_regularization_objective": final_weight_penalty_objective,
+        "weight_regularization_history": np.asarray(weight_regularization_history),
+        "entropy_regularization_objective": final_entropy_objective,
+        "gini_regularization_objective": final_gini_objective,
+        "weight_regularization_schedule": weight_regularization_schedule,
+        "weight_regularization_factor": current_weight_regularization_factor,
+        "weight_regularization_factor_history": np.asarray(
+            weight_regularization_factor_history,
+            dtype=float,
+        ),
+        "weight_solver_method": (
+            weight_solve_results[-1].method if weight_solve_results else None
+        ),
+        "weight_solver_iterations": int(
+            sum(result.n_iter for result in weight_solve_results)
+        ),
+        "weight_solver_converged": bool(
+            all(result.converged for result in weight_solve_results)
+        ),
+        "weight_solver_active_components": (
+            weight_solve_results[-1].n_optimized_components
+            if weight_solve_results
+            else K
+        ),
+        "weight_solver_active_history": np.asarray(
+            [result.n_optimized_components for result in weight_solve_results],
+            dtype=int,
+        ),
         "n_iter": n_outer_iter,
         "n_outer_iter": n_outer_iter,
         "converged": converged,

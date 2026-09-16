@@ -17,14 +17,28 @@ from experiments.utils.params_shape_utils import convert_and_check_params
 
 
 def _init_model(
-    model_cfg, random_state, data_generator_cfg, init_models_with_oracle_n_components
+    model_cfg,
+    random_state,
+    data_generator_cfg,
+    init_models_with_oracle_n_components,
+    n_samples,
 ):
+<<<<<<< HEAD
     target = model_cfg.target
     target_class = get_class(target["_target_"])
     accepts_n_components = "n_components" in inspect.signature(
         target_class.__init__
     ).parameters
     if init_models_with_oracle_n_components and accepts_n_components:
+=======
+    if model_cfg.target.get("init") == "data_points":
+        return instantiate(
+            model_cfg.target,
+            random_state=random_state,
+            n_components=int(n_samples),
+        )
+    if init_models_with_oracle_n_components:
+>>>>>>> f010971 (refactoring + add entropy regularization)
         return instantiate(
             target,
             random_state=random_state,
@@ -53,6 +67,7 @@ def run_on_dataset(
                     seed,
                     data_generator_cfg,
                     init_models_with_oracle_n_components,
+                    dataset["X"].shape[0],
                 )
                 try:
                     fit_start = perf_counter()
