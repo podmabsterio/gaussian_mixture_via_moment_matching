@@ -73,7 +73,7 @@ def test_smooth_em_defaults_to_one_component_per_design_point():
     assert model.history_[0].metadata["n_components"] == 12
 
 
-def test_smooth_em_uses_the_analytic_homogeneous_normalizer_and_variance():
+def test_smooth_em_estimates_the_homogeneous_normalizer_and_keeps_known_variance():
     variance = 1.7
     model = SmoothEMGaussianMixtureModel(
         mode="homogeneous",
@@ -85,12 +85,35 @@ def test_smooth_em_uses_the_analytic_homogeneous_normalizer_and_variance():
         random_state=5,
     ).fit(_data())
 
-    expected_nu = (1.0 + variance / (model.s_ * model.s_)) ** 1.0
+    initial = model.history_[0].parameters
+    kernel = model._kernel_matrix(
+        model.design_points_, initial.means, np.full(len(initial.weights), variance), model.s_
+    )
+    observed = model.observed_zeroth_moments_
+    expected_nu = np.dot(observed, kernel @ initial.weights) / np.dot(observed, observed)
     optimization = next(
         snapshot for snapshot in model.history_ if snapshot.phase == "optimization"
     )
     np.testing.assert_allclose(optimization.metadata["nu"], expected_nu)
     np.testing.assert_allclose(model.sigmas_**2, variance)
+
+
+def test_homogeneous_normalizer_is_refitted_each_internal_step():
+    model = SmoothEMGaussianMixtureModel(
+        mode="homogeneous", base_variance=1.0, regularization=0.0, weight_steps=1
+    )
+    design = np.array([[0.0], [2.0]])
+    observed = np.array([0.8, 0.2])
+    means = np.array([[0.0], [2.0]])
+    weights = np.array([0.5, 0.5])
+    kernel = model._kernel_matrix(design, means, np.ones(2), 1.0)
+    expected_nu = np.dot(observed, kernel @ weights) / np.dot(observed, observed)
+
+    _, _, actual_nu = model._homogeneous_internal_step(
+        design, observed, np.zeros((2, 1)), 1.0, means, weights
+    )
+    np.testing.assert_allclose(actual_nu, expected_nu)
+    assert not np.isclose(actual_nu, np.sqrt(2.0))
 
 
 def test_smooth_em_uses_calibrated_sparsity_penalty_by_default():

@@ -269,9 +269,9 @@ class SmoothEMGaussianMixtureModel:
     def _homogeneous_internal_step(self, design, C, Z, s, means, weights):
         variances = np.full(len(weights), self.base_variance, dtype=float)
         W = self._kernel_matrix(design, means, variances, s)
-        nu = float(
-            np.power(1.0 + self.base_variance / (s * s), design.shape[1] / 2.0)
-        )
+        # Section 2.5.2 fits nu from the observed zeroth moments with the
+        # current means and weights, rather than substituting the ambient d.
+        nu = float(np.dot(C, W @ weights) / np.dot(C, C))
         weights = self._solve_weights(W, nu * C, weights, self.regularization)
         means, variances, weights, _ = self._prune(means, variances, weights)
         A = (
@@ -429,15 +429,15 @@ class SmoothEMGaussianMixtureModel:
         self.observed_zeroth_moments_, self.observed_moments_ = self._moment_design(
             X, design, self.s_
         )
-        homogeneous_nu = float(
-            np.power(
-                1.0 + self.base_variance / (self.s_ * self.s_), X.shape[1] / 2.0
-            )
-        )
         initial_count = self._initial_component_count(design)
         means = self._farthest_seeds(design, initial_count, rng)
         variances = np.full(initial_count, self.base_variance, dtype=float)
         weights = np.full(initial_count, 1.0 / initial_count)
+        initial_kernel = self._kernel_matrix(design, means, variances, self.s_)
+        homogeneous_nu = float(
+            np.dot(self.observed_zeroth_moments_, initial_kernel @ weights)
+            / np.dot(self.observed_zeroth_moments_, self.observed_zeroth_moments_)
+        )
         self.history_ = []
         self.objective_history_ = []
         self.moment_objective_history_ = []
