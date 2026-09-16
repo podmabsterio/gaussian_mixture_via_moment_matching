@@ -61,7 +61,7 @@
     {
       "id": "smooth_em_gmm",
       "display_name": "Smoothed EM Gaussian Mixture Model",
-      "description": "Overcomplete smoothed-EM estimator with homogeneous and inhomogeneous spherical-variance modes.",
+      "description": "Smooth EM with descent-checked weight updates, a regularized objective, and homogeneous or inhomogeneous spherical variances.",
       "target": "src_np.gmm.SmoothEMGaussianMixtureModel",
       "default_instance_name": "smooth_em_gmm",
       "parameters": [
@@ -71,13 +71,19 @@
         {"key": "n_design_points", "display_name": "Design points", "description": "Number of sampled design points used by the localized moment system.", "type": "integer", "default": 400, "minimum": 1, "maximum": 10000},
         {"key": "base_variance", "display_name": "Known homogeneous variance σ²", "description": "Known spherical variance for the Section 2 homogeneous block and the Section 3 warm-up.", "type": "number", "default": 1.0, "exclusive_minimum": 0.0, "advanced": true},
         {"key": "initial_components", "display_name": "Initial components", "description": "Optional ablation override. By default, the reference initialization uses K=J: one component per design point.", "type": "integer", "default": null, "nullable": true, "minimum": 1, "advanced": true},
-        {"key": "regularization", "display_name": "Entropy penalty lambda", "description": "Sparsity penalty used in simplex weight updates. The calibrated default 0.1 avoids premature component deletion in high dimension.", "type": "number", "default": 0.1, "minimum": 0.0, "step": 0.01, "advanced": true},
-        {"key": "max_steps", "display_name": "Maximum external steps", "description": "Number of outer Smooth EM blocks.", "type": "integer", "default": 7, "minimum": 0, "maximum": 1000},
+        {"key": "regularization", "display_name": "Entropy penalty lambda", "description": "Sparsity penalty used in simplex weight updates. Larger values can remove components, especially when clusters overlap.", "type": "number", "default": 0.1, "minimum": 0.0, "step": 0.01, "advanced": true},
+        {"key": "max_steps", "display_name": "Maximum external steps", "description": "Outer Smooth EM blocks; empty uses 3 for homogeneous mode or 7 for inhomogeneous mode.", "type": "integer", "default": null, "nullable": true, "minimum": 0, "maximum": 1000},
         {"key": "internal_steps", "display_name": "Internal steps", "description": "Number of localized moment updates per external step.", "type": "integer", "default": 5, "minimum": 1, "maximum": 100, "advanced": true},
         {"key": "n_directions", "display_name": "Variance directions", "description": "Random directions used for inhomogeneous variance updates.", "type": "integer", "default": 5, "minimum": 1, "maximum": 100, "advanced": true},
         {"key": "min_variance", "display_name": "Minimum variance", "description": "Lower numerical bound for estimated spherical variances.", "type": "number", "default": 0.05, "exclusive_minimum": 0.0, "advanced": true},
         {"key": "max_variance", "display_name": "Maximum variance", "description": "Upper numerical bound for estimated spherical variances.", "type": "number", "default": 8.0, "exclusive_minimum": 0.0, "advanced": true},
-        {"key": "active_weight_tol", "display_name": "Active-weight threshold", "description": "Components below this simplex weight are pruned; the two largest are retained if necessary.", "type": "number", "default": 0.00000001, "minimum": 0.0, "advanced": true},
+        {"key": "active_weight_tol", "display_name": "Active-weight threshold", "description": "Components at or below this simplex weight are pruned; the largest is retained if all are below it.", "type": "number", "default": 0.00000001, "minimum": 0.0, "advanced": true},
+        {"key": "objective_rtol", "display_name": "Relative convergence tolerance", "description": "Relative tolerance on the regularized objective after outer blocks; zero with zero absolute tolerance disables early stopping.", "type": "number", "default": 0.0, "minimum": 0.0, "advanced": true},
+        {"key": "objective_atol", "display_name": "Absolute convergence tolerance", "description": "Absolute tolerance on the regularized objective after outer blocks.", "type": "number", "default": 0.0, "minimum": 0.0, "advanced": true},
+        {"key": "convergence_patience", "display_name": "Convergence patience", "description": "Consecutive stable outer blocks needed for early stopping.", "type": "integer", "default": 2, "minimum": 1, "maximum": 50, "advanced": true},
+        {"key": "weight_steps", "display_name": "Weight update steps", "description": "Maximum projected steps per weight update; the solver backtracks whenever the weight objective rises.", "type": "integer", "default": 80, "minimum": 1, "maximum": 1000, "advanced": true},
+        {"key": "data_batch_size", "display_name": "Data batch size", "description": "Batch size for empirical moment calculation.", "type": "integer", "default": 4096, "minimum": 1, "advanced": true},
+        {"key": "design_batch_size", "display_name": "Design batch size", "description": "Batch size for empirical moment design points.", "type": "integer", "default": 512, "minimum": 1, "advanced": true},
         {"key": "random_state", "display_name": "Model random state", "description": "Injected by the runner.", "type": "integer", "default": null, "nullable": true, "hidden": true}
       ]
     }

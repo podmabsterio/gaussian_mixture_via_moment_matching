@@ -111,11 +111,20 @@ def test_smooth_em_reports_finite_moment_objective_and_likelihood_diagnostics():
     assert model.negative_log_likelihood_ == model.negative_log_likelihood_history_[-1]
     assert len(snapshots) == len(model.history_)
     assert np.all(np.isfinite(model.objective_history_))
+    assert np.all(np.isfinite(model.moment_objective_history_))
+    assert np.all(np.isfinite(model.entropy_penalty_history_))
     assert np.all(np.isfinite(model.negative_log_likelihood_history_))
     assert all(
-        snapshot.loss
-        == snapshot.losses["zeroth_moment"] + snapshot.losses["first_moment"]
+        np.isclose(
+            snapshot.loss,
+            snapshot.losses["zeroth_moment"]
+            + snapshot.losses["first_moment"]
+            + snapshot.losses["entropy_penalty"],
+        )
         for snapshot in snapshots
+    )
+    np.testing.assert_allclose(
+        model.objective_, model.moment_objective_ + model.entropy_penalty_
     )
     assert all(
         np.isfinite(snapshot.losses["negative_log_likelihood"])
@@ -154,8 +163,95 @@ def test_smooth_em_is_registered_in_ui_declarations():
         models = json.load(handle)["models"]
     declaration = next(model for model in models if model["id"] == "smooth_em_gmm")
     assert declaration["target"] == "src_np.gmm.SmoothEMGaussianMixtureModel"
+    assert "descent-checked" in declaration["description"]
     assert {parameter["key"] for parameter in declaration["parameters"]} >= {
         "mode",
         "max_steps",
+        "objective_rtol",
+        "objective_atol",
+        "convergence_patience",
+        "weight_steps",
         "random_state",
     }
+
+
+def test_weight_update_does_not_increase_its_subproblem_objective():
+    model = SmoothEMGaussianMixtureModel(weight_steps=20)
+    matrix = np.array([[1.0, 0.2, 0.4], [0.1, 0.8, 0.3], [0.3, 0.2, 0.9]])
+    target = np.array([0.7, 0.4, 0.3])
+    weights = np.full(3, 1 / 3)
+    penalty = 0.1
+
+    def objective(values):
+        residual = matrix @ values - target
+        safe_values = values + 1e-12
+        return np.dot(residual, residual) / len(target) - penalty / len(target) * np.sum(
+            safe_values * np.log(safe_values)
+        )
+
+    result = model._solve_weights(matrix, target, weights, penalty)
+    assert objective(result) <= objective(weights)
+    np.testing.assert_allclose(result.sum(), 1.0)
+    assert np.all(result >= 0)
+
+
+def test_pruning_can_leave_one_component():
+    model = SmoothEMGaussianMixtureModel()
+    means = np.array([[0.0], [1.0]])
+    variances = np.ones(2)
+    pruned_means, _, weights, keep = model._prune(
+        means, variances, np.array([1.0, 0.0])
+    )
+
+    np.testing.assert_array_equal(keep, [0])
+    np.testing.assert_array_equal(pruned_means, [[0.0]])
+    np.testing.assert_array_equal(weights, [1.0])
+
+
+def test_mean_update_is_translation_equivariant():
+    model = SmoothEMGaussianMixtureModel()
+    A = np.array([[1.0], [0.5]])
+    first_moment = np.array([[0.2], [-0.1]])
+    design = np.array([[2.0], [3.0]])
+    reference = np.array([[2.5]])
+    shift = 1000.0
+
+    original = model._solve_mean_system(A, first_moment, design, reference)
+    translated = model._solve_mean_system(
+        A, first_moment, design + shift, reference + shift
+    )
+
+    np.testing.assert_allclose(translated, original + shift)
+
+
+def test_convergence_stops_after_requested_number_of_stable_outer_blocks():
+    for mode in ("homogeneous", "inhomogeneous"):
+        model = SmoothEMGaussianMixtureModel(
+            mode=mode,
+            initial_components=8,
+            n_design_points=16,
+            max_steps=5,
+            internal_steps=1,
+            objective_atol=1e6,
+            convergence_patience=2,
+            random_state=17,
+        ).fit(_data())
+
+        labeling = [snapshot for snapshot in model.history_ if snapshot.phase == "labeling"]
+        assert model.converged_
+        assert len(labeling) == 3
+        assert model.n_iter_ == model.history_[-1].iteration
+
+
+def test_zero_convergence_tolerances_use_full_iteration_budget():
+    model = SmoothEMGaussianMixtureModel(
+        mode="homogeneous",
+        initial_components=8,
+        n_design_points=16,
+        max_steps=4,
+        internal_steps=1,
+        random_state=17,
+    ).fit(_data())
+
+    assert not model.converged_
+    assert sum(snapshot.phase == "labeling" for snapshot in model.history_) == 4

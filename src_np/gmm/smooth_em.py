@@ -1,4 +1,4 @@
-"""Faithful NumPy port of the Smoothed-EM interactive laboratory.
+"""Smooth EM with descent-checked weight updates and regularized diagnostics.
 
 The method is deliberately overcomplete: it estimates the number of active
 components by simplex weight pruning rather than receiving the oracle number of
@@ -217,29 +217,54 @@ class SmoothEMGaussianMixtureModel:
         frobenius = float(np.sum(matrix * matrix))
         step = 0.75 / max(1e-8, 2.0 * frobenius / n_rows)
         candidate = weights.copy()
+
+        def objective(values):
+            residual = matrix @ values - target
+            safe_values = values + 1e-12
+            return float(
+                np.dot(residual, residual) / n_rows
+                - penalty / n_rows * np.sum(safe_values * np.log(safe_values))
+            )
+
+        current_objective = objective(candidate)
         for _ in range(self.weight_steps):
             residual = matrix @ candidate - target
             gradient = 2.0 * (matrix.T @ residual) / n_rows
             gradient -= penalty / n_rows * (np.log(candidate + 1e-12) + 1.0)
-            candidate = self._project_simplex(candidate - step * gradient)
+            local_step = step
+            for _ in range(40):
+                proposed = self._project_simplex(candidate - local_step * gradient)
+                proposed_objective = objective(proposed)
+                if proposed_objective <= current_objective:
+                    break
+                local_step *= 0.5
+            else:
+                break
+            if np.max(np.abs(proposed - candidate)) <= 1e-12:
+                break
+            candidate = proposed
+            current_objective = proposed_objective
+            step = local_step * 1.05
         return candidate
 
     def _prune(self, means, variances, weights):
         keep = np.flatnonzero(weights > self.active_weight_tol)
-        if keep.size < min(2, weights.size):
-            keep = np.argsort(-weights)[: min(2, weights.size)]
+        if keep.size == 0:
+            keep = np.argsort(-weights)[:1]
         weights = weights[keep]
         weights /= np.sum(weights)
         return means[keep], variances[keep], weights, keep
 
     @staticmethod
-    def _solve_mean_system(A, target, design):
+    def _solve_mean_system(A, target, design, means_reference):
         K = A.shape[1]
         row_sum = np.sum(A, axis=1)
         rhs = A.T @ (target + row_sum[:, None] * design)
         ata = A.T @ A
         ridge = 2e-3 * (np.trace(ata) / max(K, 1) + 1.0)
-        return np.linalg.solve(ata + ridge * np.eye(K), rhs)
+        return np.linalg.solve(
+            ata + ridge * np.eye(K), rhs + ridge * means_reference
+        )
 
     def _homogeneous_internal_step(self, design, C, Z, s, means, weights):
         variances = np.full(len(weights), self.base_variance, dtype=float)
@@ -254,7 +279,7 @@ class SmoothEMGaussianMixtureModel:
             * weights[None, :]
             * (s * s / (self.base_variance + s * s))
         )
-        means = self._solve_mean_system(A, nu * Z, design)
+        means = self._solve_mean_system(A, nu * Z, design, means)
         return means, weights, nu
 
     def _inhomogeneous_internal_step(
@@ -274,7 +299,7 @@ class SmoothEMGaussianMixtureModel:
             * weights[None, :]
             * gamma[keep][None, :]
         )
-        means = self._solve_mean_system(A, Z, design)
+        means = self._solve_mean_system(A, Z, design, means)
         return (
             means,
             variances,
@@ -415,7 +440,13 @@ class SmoothEMGaussianMixtureModel:
         weights = np.full(initial_count, 1.0 / initial_count)
         self.history_ = []
         self.objective_history_ = []
+        self.moment_objective_history_ = []
+        self.entropy_penalty_history_ = []
+        self.weight_objective_history_ = []
         self.negative_log_likelihood_history_ = []
+        self.converged_ = False
+        previous_block_loss = None
+        stable_blocks = 0
 
         def report(
             iteration,
@@ -441,7 +472,20 @@ class SmoothEMGaussianMixtureModel:
                 1.0 if nu is None else nu,
                 homogeneous_moments,
             )
-            loss = zero_loss + first_loss
+            moment_loss = zero_loss + first_loss
+            strength = (
+                self.regularization
+                if homogeneous_moments
+                else self.regularization / ((1.0 if nu is None else nu) ** 2)
+            )
+            # This smoothed entropy has exactly the derivative used by
+            # _solve_weights, including at zero simplex weights.
+            safe_weights = weights + 1e-12
+            entropy_penalty = -strength / len(design) * float(
+                np.sum(safe_weights * np.log(safe_weights))
+            )
+            weight_objective = zero_loss + entropy_penalty
+            loss = moment_loss + entropy_penalty
             snapshot = IterationSnapshot(
                 iteration=iteration,
                 loss=loss,
@@ -452,6 +496,9 @@ class SmoothEMGaussianMixtureModel:
                 losses={
                     "zeroth_moment": zero_loss,
                     "first_moment": first_loss,
+                    "moment_objective": moment_loss,
+                    "entropy_penalty": entropy_penalty,
+                    "weight_objective": weight_objective,
                     "negative_log_likelihood": nll,
                 },
                 metadata={
@@ -467,9 +514,29 @@ class SmoothEMGaussianMixtureModel:
             )
             self.history_.append(snapshot)
             self.objective_history_.append(loss)
+            self.moment_objective_history_.append(moment_loss)
+            self.entropy_penalty_history_.append(entropy_penalty)
+            self.weight_objective_history_.append(weight_objective)
             self.negative_log_likelihood_history_.append(nll)
             if iteration_callback is not None:
                 iteration_callback(snapshot)
+
+        def check_convergence():
+            nonlocal previous_block_loss, stable_blocks
+            if self.objective_rtol == 0 and self.objective_atol == 0:
+                return False
+            current_loss = self.objective_history_[-1]
+            if previous_block_loss is not None:
+                tolerance = self.objective_atol + self.objective_rtol * abs(
+                    previous_block_loss
+                )
+                if abs(current_loss - previous_block_loss) <= tolerance:
+                    stable_blocks += 1
+                else:
+                    stable_blocks = 0
+            previous_block_loss = current_loss
+            self.converged_ = stable_blocks >= self.convergence_patience
+            return self.converged_
 
         iteration = 0
         report(
@@ -518,6 +585,8 @@ class SmoothEMGaussianMixtureModel:
                     internal=self.internal_steps,
                     homogeneous_moments=True,
                 )
+                if check_convergence():
+                    break
         elif self.max_steps > 0:
             # The prototype intentionally starts Section 3 with one complete
             # Section 2.5 block before estimating heterogeneous variances.
@@ -571,6 +640,7 @@ class SmoothEMGaussianMixtureModel:
                 external=1,
                 internal=self.internal_steps,
             )
+            check_convergence()
             for external in range(2, self.max_steps + 1):
                 for internal in range(1, self.internal_steps + 1):
                     means, variances, weights, nu, penalty = (
@@ -618,6 +688,8 @@ class SmoothEMGaussianMixtureModel:
                     external=external,
                     internal=self.internal_steps,
                 )
+                if check_convergence():
+                    break
 
         self.means_ = np.asarray(means, dtype=float)
         self.sigmas_ = np.sqrt(np.asarray(variances, dtype=float))
@@ -632,9 +704,11 @@ class SmoothEMGaussianMixtureModel:
             * np.log1p(variances / (self.s_ * self.s_))
         )
         self.objective_ = float(self.objective_history_[-1])
+        self.moment_objective_ = float(self.moment_objective_history_[-1])
+        self.entropy_penalty_ = float(self.entropy_penalty_history_[-1])
+        self.weight_objective_ = float(self.weight_objective_history_[-1])
         self.negative_log_likelihood_ = float(self.negative_log_likelihood_history_[-1])
         self.n_iter_ = iteration
-        self.converged_ = False
         return self
 
     def params_dict(self):

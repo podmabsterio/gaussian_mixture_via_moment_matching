@@ -33,7 +33,7 @@ models:
       # Section 2.5 initialization: one component per sampled design point.
       initial_components: null
       base_variance: 1.0
-      # Calibrated to avoid simplex collapse in high-dimensional weak mixtures.
+      # Weight updates backtrack; tune this penalty for weakly separated mixtures.
       regularization: 0.1
       max_steps: 3
       internal_steps: 5

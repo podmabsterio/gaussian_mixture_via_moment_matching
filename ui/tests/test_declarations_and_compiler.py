@@ -1,9 +1,10 @@
+import inspect
 from pathlib import Path
 
 import pytest
 
 from ui.backend.config_compiler import ConfigCompileError, ConfigCompiler
-from ui.backend.declarations import DeclarationError, DeclarationStore
+from ui.backend.declarations import DeclarationError, DeclarationStore, import_target
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -64,6 +65,28 @@ def test_advanced_and_hidden_default_to_false_when_omitted():
     )
     assert n_init.get("advanced", False) is False
     assert n_init.get("hidden", False) is False
+
+
+def test_smooth_em_declaration_matches_public_contract():
+    store = DeclarationStore(DECLARATIONS)
+    declaration = store.model("smooth_em_gmm")
+    model_class = import_target(declaration["target"])
+    constructor_keys = set(inspect.signature(model_class).parameters)
+    declared_keys = {parameter["key"] for parameter in declaration["parameters"]}
+
+    # The legacy merge option is accepted by the constructor for old configs,
+    # but does not perform an operation and must not be offered in the UI.
+    assert constructor_keys - declared_keys == {"merge_threshold"}
+    assert declared_keys - constructor_keys == set()
+
+    for mode, expected_steps in (("homogeneous", 3), ("inhomogeneous", 7)):
+        parameters = store.resolve_parameters(
+            declaration["parameters"], {"mode": mode}, "model"
+        )
+        assert parameters["max_steps"] is None
+        model = model_class(**parameters)
+        assert model.max_steps == expected_steps
+        assert model.weight_steps == parameters["weight_steps"]
 
 
 def test_compiler_applies_ui_and_hidden_defaults(tmp_path):

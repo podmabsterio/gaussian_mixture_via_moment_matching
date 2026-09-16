@@ -1,3 +1,7 @@
 from .moments import MomentGaussianMixtureModel
+from .smooth_em import SmoothEMGaussianMixtureModel
 
-__all__ = ["MomentGaussianMixtureModel"]
+__all__ = [
+    "MomentGaussianMixtureModel",
+    "SmoothEMGaussianMixtureModel",
+]

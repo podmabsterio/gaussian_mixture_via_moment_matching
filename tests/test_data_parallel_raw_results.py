@@ -1,6 +1,7 @@
 import pandas as pd
+from omegaconf import OmegaConf
 
-from experiments.runners.data_parallel_runner import raw_results_dataframe
+from experiments.runners.data_parallel_runner import _init_model, raw_results_dataframe
 
 
 def test_raw_results_dataframe_preserves_paired_seed_identifiers():
@@ -29,3 +30,24 @@ def test_raw_results_dataframe_preserves_paired_seed_identifiers():
     assert set(raw["model_seed"]) == {1, 2}
     assert set(raw["model_name"]) == {"model_a", "model_b"}
     assert raw.duplicated(["dataset_seed", "model_seed", "model_name"]).sum() == 0
+
+
+def test_runner_respects_data_point_component_count():
+    model_cfg = OmegaConf.create(
+        {"target": {"_target_": "src_np.gmm.MomentGaussianMixtureModel", "init": "data_points"}}
+    )
+    dataset_cfg = OmegaConf.create({"n_components": 3})
+    model = _init_model(model_cfg, 7, dataset_cfg, True, 20)
+
+    assert model.k == 20
+
+
+def test_runner_does_not_inject_component_count_into_smooth_em():
+    model_cfg = OmegaConf.create(
+        {"target": {"_target_": "src_np.gmm.SmoothEMGaussianMixtureModel"}}
+    )
+    dataset_cfg = OmegaConf.create({"n_components": 3})
+    model = _init_model(model_cfg, 7, dataset_cfg, True, 20)
+
+    assert model.initial_components is None
+    assert model.random_state == 7

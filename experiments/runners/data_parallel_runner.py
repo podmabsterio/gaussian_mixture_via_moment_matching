@@ -23,22 +23,18 @@ def _init_model(
     init_models_with_oracle_n_components,
     n_samples,
 ):
-<<<<<<< HEAD
     target = model_cfg.target
     target_class = get_class(target["_target_"])
     accepts_n_components = "n_components" in inspect.signature(
         target_class.__init__
     ).parameters
-    if init_models_with_oracle_n_components and accepts_n_components:
-=======
-    if model_cfg.target.get("init") == "data_points":
+    if accepts_n_components and target.get("init") == "data_points":
         return instantiate(
-            model_cfg.target,
+            target,
             random_state=random_state,
             n_components=int(n_samples),
         )
-    if init_models_with_oracle_n_components:
->>>>>>> f010971 (refactoring + add entropy regularization)
+    if init_models_with_oracle_n_components and accepts_n_components:
         return instantiate(
             target,
             random_state=random_state,

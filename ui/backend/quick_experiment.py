@@ -326,9 +326,7 @@ class QuickExperimentManager:
             if "n_components" in inspect.signature(
                 target_class.__init__
             ).parameters:
-                model_configuration["n_components"] = int(
-                    np.asarray(dataset["true_means"]).shape[0]
-                )
+                model_configuration["n_components"] = n_components
             prepared["config"]["models"][0]["target"] = copy.deepcopy(
                 model_configuration
             )
