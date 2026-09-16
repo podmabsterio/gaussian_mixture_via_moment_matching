@@ -2,6 +2,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from experiments.visualization import PCAProjector2D
 from src_np.iteration import IterationSnapshot, MixtureParameters
@@ -153,6 +154,46 @@ def test_quick_data_point_initialization_uses_one_component_per_sample(tmp_path)
     displayed_components = run["snapshots"][0]["estimated_components"]
     assert 0 < len(displayed_components) <= 20
     assert all(component["weight"] > 1e-5 for component in displayed_components)
+    assert all(metric["value"] is not None for metric in run["final_metrics"])
+
+
+@pytest.mark.parametrize("mode", ["homogeneous", "inhomogeneous"])
+def test_smooth_em_quick_run_streams_snapshots_and_metrics(tmp_path, mode):
+    store = DeclarationStore(PROJECT_ROOT / "ui" / "declarations")
+    run_manager = RunManager(PROJECT_ROOT, tmp_path / "runtime")
+    catalog = ResultsCatalog(tmp_path / "results")
+    quick_manager = QuickExperimentManager(
+        store, PROJECT_ROOT, tmp_path / "runtime" / "quick", catalog.results_root
+    )
+    client = create_app(store, run_manager, catalog, quick_manager).test_client()
+    request = quick_request(f"smooth_em_{mode}")
+    request["model"] = {
+        "declaration_id": "smooth_em_gmm",
+        "instance_name": "smooth_em",
+        "parameters": {
+            "mode": mode,
+            "n_design_points": 12,
+            "initial_components": 6,
+            "max_steps": 1,
+            "internal_steps": 1,
+            "weight_steps": 8,
+        },
+    }
+
+    response = client.post("/api/quick-runs", json=request)
+    assert response.status_code == 202
+    run_id = response.get_json()["id"]
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        run = client.get(f"/api/quick-runs/{run_id}").get_json()
+        if run["status"] not in {"starting", "running", "cancelling"}:
+            break
+        time.sleep(0.02)
+
+    assert run["status"] == "completed", run.get("traceback") or run.get("error")
+    assert "n_components" not in run["config"]["models"][0]["target"]
+    assert len(run["snapshots"]) > 1
+    assert run["snapshots"][0]["iteration"] == 0
     assert all(metric["value"] is not None for metric in run["final_metrics"])
 
 
