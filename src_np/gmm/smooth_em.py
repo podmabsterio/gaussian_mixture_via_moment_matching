@@ -261,7 +261,7 @@ class SmoothEMGaussianMixtureModel:
         row_sum = np.sum(A, axis=1)
         rhs = A.T @ (target + row_sum[:, None] * design)
         ata = A.T @ A
-        ridge = 2e-3 * (np.trace(ata) / max(K, 1) + 1.0)
+        ridge = 2e-2 * (np.trace(ata) / max(K, 1) + 1.0)
         return np.linalg.solve(
             ata + ridge * np.eye(K), rhs + ridge * means_reference
         )
