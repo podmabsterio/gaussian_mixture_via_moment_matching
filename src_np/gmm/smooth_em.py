@@ -1,10 +1,9 @@
 """Smooth EM with descent-checked weight updates and regularized diagnostics.
 
-The method is deliberately overcomplete: it estimates the number of active
-components by simplex weight pruning rather than receiving the oracle number of
-components.  It uses localized zeroth and vector first moments.  The two modes
-are the Section 2.5 homogeneous and Section 3 inhomogeneous procedures from
-the original interactive prototype.
+The method estimates the number of active components by simplex weight pruning
+rather than receiving the oracle number of components. It uses localized
+zeroth and vector first moments. The two modes are the Section 2.5 homogeneous
+and Section 3 inhomogeneous procedures from the original interactive prototype.
 """
 
 from __future__ import annotations
@@ -18,20 +17,20 @@ from src_np.iteration import IterationSnapshot, MixtureParameters
 class SmoothEMGaussianMixtureModel:
     """Overcomplete smoothed moment/EM estimator for spherical GMMs.
 
-    The reference procedure initializes one component at every design point:
-    ``initial_components=None`` therefore gives ``K = J`` and ``m_k = x_k``.
-    Supplying a value is available only as an explicit ablation override.
+    By default, initialize at most 24 components from the design points.
+    ``initial_components=None`` retains the overcomplete reference initialization
+    with one component at every design point for ablation experiments.
     """
 
     def __init__(
         self,
-        initial_components=None,
+        initial_components=24,
         mode="inhomogeneous",
         target_neighbor_fraction=1.0 / 6.0,
         target_neighbor_count=None,
-        n_design_points=400,
+        n_design_points=720,
         base_variance=1.0,
-        regularization=0.1,
+        regularization=1.0,
         max_steps=None,
         internal_steps=5,
         n_directions=5,
@@ -138,21 +137,29 @@ class SmoothEMGaussianMixtureModel:
 
     @staticmethod
     def _farthest_seeds(points, count, rng):
+        """Choose distinct design rows with distance-weighted seeding."""
         count = min(int(count), points.shape[0])
-        seeds = [points[rng.integers(points.shape[0])].copy()]
-        minimum_distance = np.sum((points - seeds[0]) ** 2, axis=1)
+        chosen = np.zeros(points.shape[0], dtype=bool)
+        first = int(rng.integers(points.shape[0]))
+        indices = [first]
+        chosen[first] = True
+        minimum_distance = np.sum((points - points[first]) ** 2, axis=1)
         for _ in range(1, count):
-            total = float(np.sum(minimum_distance))
+            probabilities = minimum_distance.copy()
+            probabilities[chosen] = 0.0
+            total = float(np.sum(probabilities))
+            remaining = np.flatnonzero(~chosen)
             index = (
-                int(rng.integers(points.shape[0]))
-                if total <= np.finfo(float).tiny
-                else int(rng.choice(points.shape[0], p=minimum_distance / total))
+                int(rng.choice(points.shape[0], p=probabilities / total))
+                if total > np.finfo(float).tiny
+                else int(rng.choice(remaining))
             )
-            seeds.append(points[index].copy())
+            indices.append(index)
+            chosen[index] = True
             minimum_distance = np.minimum(
                 minimum_distance, np.sum((points - points[index]) ** 2, axis=1)
             )
-        return np.asarray(seeds, dtype=float)
+        return points[indices].copy()
 
     def _initial_component_count(self, design):
         if self.initial_components is not None:
@@ -430,7 +437,11 @@ class SmoothEMGaussianMixtureModel:
             X, design, self.s_
         )
         initial_count = self._initial_component_count(design)
-        means = self._farthest_seeds(design, initial_count, rng)
+        means = (
+            design.copy()
+            if initial_count == len(design)
+            else self._farthest_seeds(design, initial_count, rng)
+        )
         variances = np.full(initial_count, self.base_variance, dtype=float)
         weights = np.full(initial_count, 1.0 / initial_count)
         initial_kernel = self._kernel_matrix(design, means, variances, self.s_)

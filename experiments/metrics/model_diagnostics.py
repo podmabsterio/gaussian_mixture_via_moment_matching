@@ -50,6 +50,30 @@ class MinimumEstimatedWeight(BaseMetric):
         return float(np.min(weights))
 
 
+class EstimatedComponentCount(BaseMetric):
+    """Number of fitted mixture components."""
+
+    def __init__(self):
+        super().__init__("Estimated K")
+
+    def __call__(self, weights, **kwargs):
+        return float(len(weights))
+
+
+class EffectiveEstimatedComponentCount(BaseMetric):
+    """Number of fitted components carrying at least a configured weight."""
+
+    def __init__(self, min_weight=0.01):
+        super().__init__("Effective K")
+        self.min_weight = float(min_weight)
+        if not np.isfinite(self.min_weight) or self.min_weight < 0:
+            raise ValueError("min_weight must be finite and non-negative")
+
+    def __call__(self, weights, **kwargs):
+        weights = np.asarray(weights, dtype=float).reshape(-1)
+        return float(np.sum(weights >= self.min_weight))
+
+
 class EstimatedVarianceRatio(BaseMetric):
     """Ratio of largest to smallest average marginal component variance."""
 

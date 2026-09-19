@@ -79,6 +79,14 @@ def test_smooth_em_declaration_matches_public_contract():
     assert constructor_keys - declared_keys == {"merge_threshold"}
     assert declared_keys - constructor_keys == set()
 
+    defaults = {
+        parameter["key"]: parameter["default"]
+        for parameter in declaration["parameters"]
+    }
+    assert defaults["initial_components"] == 24
+    assert defaults["n_design_points"] == 720
+    assert defaults["regularization"] == 1.0
+
     for mode, expected_steps in (("homogeneous", 3), ("inhomogeneous", 7)):
         parameters = store.resolve_parameters(
             declaration["parameters"], {"mode": mode}, "model"

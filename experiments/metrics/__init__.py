@@ -17,6 +17,8 @@ from experiments.metrics.distributional import (
     TrueForwardKLStandardError,
 )
 from experiments.metrics.model_diagnostics import (
+    EffectiveEstimatedComponentCount,
+    EstimatedComponentCount,
     EstimatedVarianceRatio,
     MaximumSelectedBandwidth,
     MinimumEstimatedWeight,
@@ -48,6 +50,8 @@ __all__ = [
     "ComponentConditionalNLL",
     "CovariancesAffineInvariantError",
     "EnergyDistance",
+    "EffectiveEstimatedComponentCount",
+    "EstimatedComponentCount",
     "EstimatedVarianceRatio",
     "FinalLogVarianceGradientInfinityNorm",
     "FinalLoss",

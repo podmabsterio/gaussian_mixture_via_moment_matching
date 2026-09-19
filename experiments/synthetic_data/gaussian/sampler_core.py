@@ -39,6 +39,7 @@ class GaussianDatasetGenerator:
         anisotropy=1.0,
         means_mode="fixed",
         weights_concentration=10.0,
+        uniform_weights=False,
         min_mahalanobis_distance=None,
     ):
         self.n_features = n_features
@@ -49,6 +50,7 @@ class GaussianDatasetGenerator:
         self.anisotropy = anisotropy
         self.means_mode = means_mode
         self.weights_concentration = weights_concentration
+        self.uniform_weights = bool(uniform_weights)
         self.min_mahalanobis_distance = min_mahalanobis_distance
 
     def generate(self, seed, n_samples=None):
@@ -68,10 +70,14 @@ class GaussianDatasetGenerator:
             random_state=seed,
         )
 
-        weights = generate_weights(
-            n_components=self.n_components,
-            concentration=self.weights_concentration,
-            random_state=seed,
+        weights = (
+            np.full(self.n_components, 1.0 / self.n_components)
+            if self.uniform_weights
+            else generate_weights(
+                n_components=self.n_components,
+                concentration=self.weights_concentration,
+                random_state=seed,
+            )
         )
 
         if self.min_mahalanobis_distance is not None:

@@ -49,5 +49,5 @@ def test_runner_does_not_inject_component_count_into_smooth_em():
     dataset_cfg = OmegaConf.create({"n_components": 3})
     model = _init_model(model_cfg, 7, dataset_cfg, True, 20)
 
-    assert model.initial_components is None
+    assert model.initial_components == 24
     assert model.random_state == 7

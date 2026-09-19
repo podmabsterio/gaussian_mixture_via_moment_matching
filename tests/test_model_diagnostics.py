@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 
 from experiments.metrics import (
+    EffectiveEstimatedComponentCount,
+    EstimatedComponentCount,
     EstimatedVarianceRatio,
     FinalLogVarianceGradientInfinityNorm,
     FinalMeanGradientInfinityNorm,
@@ -42,6 +44,18 @@ def test_mixture_failure_diagnostics_use_fitted_parameters():
 
     assert MinimumEstimatedWeight()(weights=weights) == pytest.approx(0.2)
     assert EstimatedVarianceRatio()(covariances=covariances) == pytest.approx(4.0)
+
+
+def test_component_count_diagnostics_distinguish_stored_and_effective_components():
+    weights = np.array([0.50, 0.48, 0.015, 0.005])
+
+    assert EstimatedComponentCount()(weights=weights) == 4
+    assert EffectiveEstimatedComponentCount(min_weight=0.01)(weights=weights) == 3
+
+
+def test_effective_component_count_rejects_invalid_threshold():
+    with pytest.raises(ValueError, match="non-negative"):
+        EffectiveEstimatedComponentCount(min_weight=-0.01)
 
 
 def test_optimizer_diagnostics_aggregate_internal_solver_results():

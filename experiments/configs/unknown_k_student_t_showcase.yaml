@@ -1,0 +1,475 @@
+# Unknown-K robustness showcase.
+# Each component is Student-t(df=3) with finite covariance sigma^2 I and heavy
+# tails. Metrics target the moment-matched latent Gaussian mixture. Separation
+# follows the HTML convention: distance = (1+s)*sigma*sqrt(d).
+defaults:
+  - aggregators: all
+  - _self_
+
+run_name: unknown_k_student_t_showcase
+save_dir: results
+override: true
+save_data_visualizations: false
+num_visualization_samples: 0
+
+runner:
+  _target_: experiments.runners.data_parallel_runner.DataParallelRunner
+  _recursive_: false
+  threads_limit: 1
+  num_datasets: 10
+  dataset_seed_start: 1001
+  model_seeds_per_dataset: 2
+  save_raw_results: true
+  n_jobs: 4
+  backend: loky
+  batch_size: auto
+  init_models_with_oracle_n_components: false
+
+metrics:
+  - _target_: experiments.metrics.EstimatedComponentCount
+  - _target_: experiments.metrics.EffectiveEstimatedComponentCount
+    min_weight: 0.01
+  - _target_: experiments.metrics.ForwardKL
+  - _target_: experiments.metrics.WeightsTV
+  - _target_: experiments.metrics.MeansNormalizedError
+  - _target_: experiments.metrics.CovariancesAffineInvariantError
+  - _target_: experiments.metrics.AdjustedRandIndex
+  - _target_: experiments.metrics.MacroF1
+
+models:
+  # Variational Bayesian GMM receives only K_max=24. Under heavy tails it can
+  # spend components on tail scales instead of recovering the three populations.
+  - model_name: em_bayesian_kmax24
+    target:
+      _target_: experiments.wrappers.SklearnBayesianGaussianMixtureWrapper
+      n_components: 24
+      init_mode: kmeans
+      covariance_type: spherical
+      tol: 1.0e-5
+      reg_covar: 1.0e-6
+      max_iter: 500
+      kmeans_n_init: 10
+      kmeans_max_iter: 300
+      weight_concentration_prior_type: dirichlet_distribution
+      weight_concentration_prior: null
+
+  # The existing moment estimator is also made overcomplete with K_max=24.
+  # No oracle K or extra sparsity tuning is supplied.
+  - model_name: gmmoments_kmax24
+    target:
+      _target_: src_np.gmm.MomentGaussianMixtureModel
+      n_components: 24
+      init: kmeans
+      n_init: 3
+      target_neighbor_counts: null
+      target_neighbor_fractions: [0.083333, 0.166667, 0.333333]
+      n_zero_moments: 1
+      n_first_moments: 3
+      n_second_moments: 0
+      zero_moment_weight: 1.0
+      first_moment_weight: 1.0
+      normalize_moment_losses: true
+      scale_normalize_moments: true
+      amplitude_optimization: simplex
+      s_optimization: joint
+      geometry_optimization: component
+      test_center_mode: data
+      n_test_centers: 300
+      leave_one_out: true
+      objective_rtol: 1.0e-6
+      convergence_patience: 2
+      max_steps: 20
+      geom_sweeps: 1
+      ls_max_nfev: 15
+      active_tol: 1.0e-8
+
+  # Smooth EM uses the same K0=24 but prunes weights during fitting. The common
+  # covariance is known from the homogeneous experimental design.
+  - model_name: smooth_em_k0_24
+    target:
+      _target_: src_np.gmm.SmoothEMGaussianMixtureModel
+      mode: homogeneous
+      initial_components: 24
+      n_design_points: 720
+      base_variance: 1.0
+      regularization: 1.0
+      target_neighbor_fraction: 0.166667
+      max_steps: 3
+      internal_steps: 5
+      active_weight_tol: 1.0e-8
+
+dataset_base: &dataset_base
+  _target_: experiments.synthetic_data.student_t.StudentTDatasetGenerator
+  degrees_of_freedom: 3.0
+  n_features: 10
+  n_components: 3
+  n_samples: 1000
+  covariance_type: spherical
+  variance_spread: 1.0
+  anisotropy: 1.0
+  means_mode: fixed
+  uniform_weights: true
+  weights_concentration: 1.0
+  min_mahalanobis_distance: 6.32455532034
+
+datasets:
+  - name: student_t_df3_uniform_d10_sep1_n500
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 500
+      min_mahalanobis_distance: 6.32455532034
+  - name: student_t_df3_uniform_d10_sep1_n1000
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 1000
+      min_mahalanobis_distance: 6.32455532034
+  - name: student_t_df3_uniform_d10_sep1_n1500
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 1500
+      min_mahalanobis_distance: 6.32455532034
+  - name: student_t_df3_uniform_d10_sep1_n2000
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 2000
+      min_mahalanobis_distance: 6.32455532034
+  - name: student_t_df3_uniform_d10_sep2_n500
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 500
+      min_mahalanobis_distance: 9.48683298051
+  - name: student_t_df3_uniform_d10_sep2_n1000
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 1000
+      min_mahalanobis_distance: 9.48683298051
+  - name: student_t_df3_uniform_d10_sep2_n1500
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 1500
+      min_mahalanobis_distance: 9.48683298051
+  - name: student_t_df3_uniform_d10_sep2_n2000
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 2000
+      min_mahalanobis_distance: 9.48683298051
+  - name: student_t_df3_uniform_d10_sep3_n500
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 500
+      min_mahalanobis_distance: 12.6491106407
+  - name: student_t_df3_uniform_d10_sep3_n1000
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 1000
+      min_mahalanobis_distance: 12.6491106407
+  - name: student_t_df3_uniform_d10_sep3_n1500
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 1500
+      min_mahalanobis_distance: 12.6491106407
+  - name: student_t_df3_uniform_d10_sep3_n2000
+    target:
+      <<: *dataset_base
+      n_features: 10
+      n_samples: 2000
+      min_mahalanobis_distance: 12.6491106407
+  - name: student_t_df3_uniform_d20_sep1_n500
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 500
+      min_mahalanobis_distance: 8.94427191
+  - name: student_t_df3_uniform_d20_sep1_n1000
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 1000
+      min_mahalanobis_distance: 8.94427191
+  - name: student_t_df3_uniform_d20_sep1_n1500
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 1500
+      min_mahalanobis_distance: 8.94427191
+  - name: student_t_df3_uniform_d20_sep1_n2000
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 2000
+      min_mahalanobis_distance: 8.94427191
+  - name: student_t_df3_uniform_d20_sep2_n500
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 500
+      min_mahalanobis_distance: 13.416407865
+  - name: student_t_df3_uniform_d20_sep2_n1000
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 1000
+      min_mahalanobis_distance: 13.416407865
+  - name: student_t_df3_uniform_d20_sep2_n1500
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 1500
+      min_mahalanobis_distance: 13.416407865
+  - name: student_t_df3_uniform_d20_sep2_n2000
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 2000
+      min_mahalanobis_distance: 13.416407865
+  - name: student_t_df3_uniform_d20_sep3_n500
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 500
+      min_mahalanobis_distance: 17.88854382
+  - name: student_t_df3_uniform_d20_sep3_n1000
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 1000
+      min_mahalanobis_distance: 17.88854382
+  - name: student_t_df3_uniform_d20_sep3_n1500
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 1500
+      min_mahalanobis_distance: 17.88854382
+  - name: student_t_df3_uniform_d20_sep3_n2000
+    target:
+      <<: *dataset_base
+      n_features: 20
+      n_samples: 2000
+      min_mahalanobis_distance: 17.88854382
+  - name: student_t_df3_uniform_d30_sep1_n500
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 500
+      min_mahalanobis_distance: 10.9544511501
+  - name: student_t_df3_uniform_d30_sep1_n1000
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 1000
+      min_mahalanobis_distance: 10.9544511501
+  - name: student_t_df3_uniform_d30_sep1_n1500
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 1500
+      min_mahalanobis_distance: 10.9544511501
+  - name: student_t_df3_uniform_d30_sep1_n2000
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 2000
+      min_mahalanobis_distance: 10.9544511501
+  - name: student_t_df3_uniform_d30_sep2_n500
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 500
+      min_mahalanobis_distance: 16.4316767252
+  - name: student_t_df3_uniform_d30_sep2_n1000
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 1000
+      min_mahalanobis_distance: 16.4316767252
+  - name: student_t_df3_uniform_d30_sep2_n1500
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 1500
+      min_mahalanobis_distance: 16.4316767252
+  - name: student_t_df3_uniform_d30_sep2_n2000
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 2000
+      min_mahalanobis_distance: 16.4316767252
+  - name: student_t_df3_uniform_d30_sep3_n500
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 500
+      min_mahalanobis_distance: 21.9089023002
+  - name: student_t_df3_uniform_d30_sep3_n1000
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 1000
+      min_mahalanobis_distance: 21.9089023002
+  - name: student_t_df3_uniform_d30_sep3_n1500
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 1500
+      min_mahalanobis_distance: 21.9089023002
+  - name: student_t_df3_uniform_d30_sep3_n2000
+    target:
+      <<: *dataset_base
+      n_features: 30
+      n_samples: 2000
+      min_mahalanobis_distance: 21.9089023002
+  - name: student_t_df3_uniform_d40_sep1_n500
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 500
+      min_mahalanobis_distance: 12.6491106407
+  - name: student_t_df3_uniform_d40_sep1_n1000
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 1000
+      min_mahalanobis_distance: 12.6491106407
+  - name: student_t_df3_uniform_d40_sep1_n1500
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 1500
+      min_mahalanobis_distance: 12.6491106407
+  - name: student_t_df3_uniform_d40_sep1_n2000
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 2000
+      min_mahalanobis_distance: 12.6491106407
+  - name: student_t_df3_uniform_d40_sep2_n500
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 500
+      min_mahalanobis_distance: 18.973665961
+  - name: student_t_df3_uniform_d40_sep2_n1000
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 1000
+      min_mahalanobis_distance: 18.973665961
+  - name: student_t_df3_uniform_d40_sep2_n1500
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 1500
+      min_mahalanobis_distance: 18.973665961
+  - name: student_t_df3_uniform_d40_sep2_n2000
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 2000
+      min_mahalanobis_distance: 18.973665961
+  - name: student_t_df3_uniform_d40_sep3_n500
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 500
+      min_mahalanobis_distance: 25.2982212813
+  - name: student_t_df3_uniform_d40_sep3_n1000
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 1000
+      min_mahalanobis_distance: 25.2982212813
+  - name: student_t_df3_uniform_d40_sep3_n1500
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 1500
+      min_mahalanobis_distance: 25.2982212813
+  - name: student_t_df3_uniform_d40_sep3_n2000
+    target:
+      <<: *dataset_base
+      n_features: 40
+      n_samples: 2000
+      min_mahalanobis_distance: 25.2982212813
+  - name: student_t_df3_uniform_d50_sep1_n500
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 500
+      min_mahalanobis_distance: 14.1421356237
+  - name: student_t_df3_uniform_d50_sep1_n1000
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 1000
+      min_mahalanobis_distance: 14.1421356237
+  - name: student_t_df3_uniform_d50_sep1_n1500
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 1500
+      min_mahalanobis_distance: 14.1421356237
+  - name: student_t_df3_uniform_d50_sep1_n2000
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 2000
+      min_mahalanobis_distance: 14.1421356237
+  - name: student_t_df3_uniform_d50_sep2_n500
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 500
+      min_mahalanobis_distance: 21.2132034356
+  - name: student_t_df3_uniform_d50_sep2_n1000
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 1000
+      min_mahalanobis_distance: 21.2132034356
+  - name: student_t_df3_uniform_d50_sep2_n1500
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 1500
+      min_mahalanobis_distance: 21.2132034356
+  - name: student_t_df3_uniform_d50_sep2_n2000
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 2000
+      min_mahalanobis_distance: 21.2132034356
+  - name: student_t_df3_uniform_d50_sep3_n500
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 500
+      min_mahalanobis_distance: 28.2842712475
+  - name: student_t_df3_uniform_d50_sep3_n1000
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 1000
+      min_mahalanobis_distance: 28.2842712475
+  - name: student_t_df3_uniform_d50_sep3_n1500
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 1500
+      min_mahalanobis_distance: 28.2842712475
+  - name: student_t_df3_uniform_d50_sep3_n2000
+    target:
+      <<: *dataset_base
+      n_features: 50
+      n_samples: 2000
+      min_mahalanobis_distance: 28.2842712475

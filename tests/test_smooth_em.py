@@ -61,9 +61,26 @@ def test_smooth_em_inhomogeneous_has_bounded_spherical_variances_and_is_reproduc
     np.testing.assert_allclose(np.sum(first.weights_), 1.0)
 
 
-def test_smooth_em_defaults_to_one_component_per_design_point():
+def test_smooth_em_default_initial_component_count_is_capped_at_24():
     model = SmoothEMGaussianMixtureModel(
         mode="inhomogeneous",
+        n_design_points=30,
+        max_steps=0,
+        random_state=23,
+    ).fit(_data())
+
+    assert model.n_design_points == 30
+    assert model.history_[0].metadata["n_components"] == 24
+    assert all(
+        any(np.array_equal(center, point) for point in model.design_points_)
+        for center in model.history_[0].parameters.means
+    )
+
+
+def test_smooth_em_reference_initialization_remains_available():
+    model = SmoothEMGaussianMixtureModel(
+        mode="inhomogeneous",
+        initial_components=None,
         n_design_points=12,
         max_steps=0,
         random_state=23,
@@ -71,6 +88,35 @@ def test_smooth_em_defaults_to_one_component_per_design_point():
 
     # Section 2.5: K=J and the initial means are the design points.
     assert model.history_[0].metadata["n_components"] == 12
+    np.testing.assert_array_equal(
+        model.history_[0].parameters.means, model.design_points_
+    )
+
+
+def test_smooth_em_initial_centers_preserve_data_duplicates():
+    X = np.repeat(np.array([[0.0, 0.0], [2.0, 1.0]]), 3, axis=0)
+    model = SmoothEMGaussianMixtureModel(
+        mode="homogeneous",
+        n_design_points=len(X),
+        target_neighbor_count=3.5,
+        max_steps=0,
+        random_state=3,
+    ).fit(X)
+
+    initial = model.history_[0].parameters.means
+    np.testing.assert_array_equal(initial, model.design_points_)
+    assert len(np.unique(model.design_indices_)) == len(X)
+    assert len(np.unique(initial, axis=0)) == 2
+
+
+def test_reduced_initial_component_count_uses_distinct_spread_out_design_rows():
+    model = SmoothEMGaussianMixtureModel(initial_components=2)
+    design = np.array([[0.0], [0.1], [10.0]])
+    seeds = model._farthest_seeds(design, 2, np.random.default_rng(4))
+
+    assert len(np.unique(seeds, axis=0)) == 2
+    assert 10.0 in seeds[:, 0]
+    assert all(any(np.array_equal(seed, row) for row in design) for seed in seeds)
 
 
 def test_smooth_em_estimates_the_homogeneous_normalizer_and_keeps_known_variance():
@@ -116,8 +162,11 @@ def test_homogeneous_normalizer_is_refitted_each_internal_step():
     assert not np.isclose(actual_nu, np.sqrt(2.0))
 
 
-def test_smooth_em_uses_calibrated_sparsity_penalty_by_default():
-    assert SmoothEMGaussianMixtureModel().regularization == 0.1
+def test_smooth_em_uses_calibrated_defaults():
+    model = SmoothEMGaussianMixtureModel()
+    assert model.initial_components == 24
+    assert model.n_design_points == 720
+    assert model.regularization == 1.0
 
 
 def test_smooth_em_reports_finite_moment_objective_and_likelihood_diagnostics():

@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.cluster import KMeans
-from sklearn.mixture import GaussianMixture
+from sklearn.mixture import BayesianGaussianMixture, GaussianMixture
 
 
 MIN_VARIANCE = 1e-6
@@ -154,6 +154,82 @@ class SklearnGaussianMixtureWrapper:
         self.covariances_ = spherical_variances_to_covariances(
             self.estimator_.covariances_,
             self.means_.shape[1],
+        )
+        self.history_per_s = [np.asarray([-float(self.estimator_.lower_bound_)])]
+        return self
+
+    def params_dict(self):
+        return {
+            "means": self.means_,
+            "weights": self.weights_,
+            "covariances": self.covariances_,
+        }
+
+
+class SklearnBayesianGaussianMixtureWrapper:
+    """Spherical variational Bayesian GMM with the shared initialization API."""
+
+    def __init__(
+        self,
+        n_components,
+        init_mode="kmeans",
+        means_noise_coef=0.0,
+        sigmas_noise_coef=0.0,
+        covariance_type="spherical",
+        tol=1e-3,
+        reg_covar=1e-6,
+        max_iter=500,
+        kmeans_n_init=10,
+        kmeans_max_iter=300,
+        weight_concentration_prior_type="dirichlet_distribution",
+        weight_concentration_prior=None,
+        random_state=None,
+    ):
+        if covariance_type != "spherical":
+            raise ValueError("Only covariance_type='spherical' is supported for now")
+        if init_mode not in {"oracle", "kmeans"}:
+            raise ValueError("init_mode must be 'oracle' or 'kmeans'")
+        self.n_components = int(n_components)
+        self.init_mode = init_mode
+        self.means_noise_coef = means_noise_coef
+        self.sigmas_noise_coef = sigmas_noise_coef
+        self.covariance_type = covariance_type
+        self.tol = tol
+        self.reg_covar = reg_covar
+        self.max_iter = int(max_iter)
+        self.kmeans_n_init = int(kmeans_n_init)
+        self.kmeans_max_iter = int(kmeans_max_iter)
+        self.weight_concentration_prior_type = weight_concentration_prior_type
+        self.weight_concentration_prior = weight_concentration_prior
+        self.random_state = random_state
+
+    def fit(self, true_means, true_weights, true_covariances, X, **kwargs):
+        if self.init_mode == "oracle":
+            raise ValueError(
+                "BayesianGaussianMixture does not expose parameter initialization; "
+                "use init_mode='kmeans'"
+            )
+
+        prior = self.weight_concentration_prior
+        if prior is None:
+            prior = 1.0 / self.n_components
+        self.estimator_ = BayesianGaussianMixture(
+            n_components=self.n_components,
+            covariance_type=self.covariance_type,
+            tol=self.tol,
+            reg_covar=self.reg_covar,
+            max_iter=self.max_iter,
+            n_init=self.kmeans_n_init,
+            init_params="kmeans",
+            weight_concentration_prior_type=self.weight_concentration_prior_type,
+            weight_concentration_prior=prior,
+            random_state=self.random_state,
+        )
+        self.estimator_.fit(X)
+        self.means_ = self.estimator_.means_
+        self.weights_ = self.estimator_.weights_
+        self.covariances_ = spherical_variances_to_covariances(
+            self.estimator_.covariances_, self.means_.shape[1]
         )
         self.history_per_s = [np.asarray([-float(self.estimator_.lower_bound_)])]
         return self
